@@ -132,7 +132,9 @@ const state = {
   recentVideos: [],
   analytics: null,
   currentNicheIndex: 0,
-  renderUrls: []
+  renderUrls: [],
+  playlistCache: new Map(),
+  playlistCacheLoaded: false
 };
 
 const els = {
@@ -142,7 +144,7 @@ const els = {
   topic: $('topicOutput'), title: $('titleOutput'), description: $('descriptionOutput'), tags: $('tagsOutput'), hashtags: $('hashtagsOutput'), thumbText: $('thumbnailOutput'), script: $('scriptOutput'),
   variants: $('titleVariants'), quality: $('qualityChecks'), score: $('seoScore'), preview: $('videoPreview'), previewEmpty: $('previewEmpty'), downloadVideo: $('downloadVideo'), downloadThumbnail: $('downloadThumbnail'),
   connect: $('connectYoutube'), disconnect: $('disconnectYoutube'), youtubeStatus: $('youtubeStatus'), youtubeBanner: $('youtubeBanner'),
-  privacy: $('privacySelect'), schedule: $('scheduleAt'), autoPlaylist: $('autoPlaylist'), playlistName: $('playlistName'), createPlaylists: $('createPlaylists'), playlistStatus: $('playlistStatus'), madeForKids: $('madeForKids'), uploadCaptions: $('uploadCaptions'), uploadThumbnail: $('uploadThumbnail'), uploadButton: $('uploadYoutube'), uploadProgress: $('uploadProgress'), uploadResult: $('uploadResult'), publishGuard: $('publishGuard'),
+  privacy: $('privacySelect'), schedule: $('scheduleAt'), fastUpload: $('fastUpload'), autoPlaylist: $('autoPlaylist'), playlistName: $('playlistName'), createPlaylists: $('createPlaylists'), playlistStatus: $('playlistStatus'), madeForKids: $('madeForKids'), uploadCaptions: $('uploadCaptions'), uploadThumbnail: $('uploadThumbnail'), uploadButton: $('uploadYoutube'), uploadProgress: $('uploadProgress'), uploadResult: $('uploadResult'), publishGuard: $('publishGuard'),
   refreshAnalytics: $('refreshAnalytics'), metricViews: $('metricViews'), metricWatch: $('metricWatch'), metricSubs: $('metricSubs'), metricChannel: $('metricChannel'), metricGoal: $('metricGoal'), metricMarkets: $('metricMarkets'), recentVideos: $('recentVideos'), nextIdeas: $('nextIdeas'),
   geminiKey: $('geminiApiKey'), geminiTextModel: $('geminiTextModel'), geminiTtsModel: $('geminiTtsModel'), saveAi: $('saveAi'), aiStatus: $('aiStatus'), googleClientId: $('googleClientId'), saveYoutube: $('saveYoutube'), youtubeSetupStatus: $('youtubeSetupStatus')
 };
@@ -156,6 +158,8 @@ function setStatus(text,type='subtle'){ els.status.textContent=text; els.status.
 function setProgress(n){ els.progress.style.width=`${clamp(Number(n)||0,0,100)}%`; }
 function formatNumber(value){ return new Intl.NumberFormat(undefined,{notation:Number(value)>=10000?'compact':'standard',maximumFractionDigits:1}).format(Number(value)||0); }
 function dateYmd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function mb(bytes){return (Number(bytes||0)/1048576).toFixed(Number(bytes||0)>=10485760?1:2);}
+function turboEnabled(){return els.fastUpload?.checked!==false;}
 
 function marketContext(){
   const value=els.market?.value||'premium';
@@ -186,6 +190,7 @@ function loadSettings(){
   els.googleClientId.value=state.settings.googleClientId||'';
   if(els.market) els.market.value=state.settings.marketPreset||'premium';
   if(els.revenueGoal) els.revenueGoal.value=state.settings.revenueGoal||30000;
+  if(els.fastUpload) els.fastUpload.checked=state.settings.fastUpload!==false;
   els.aiStatus.className=`notice ${state.settings.geminiKey?'good':'subtle'}`;
   els.aiStatus.textContent=state.settings.geminiKey
     ? 'Gemini settings saved only in this browser. AI planning and narration will be attempted within the quota available to your key.'
@@ -357,12 +362,15 @@ function wrapCanvasText(ctx,text,maxWidth,maxLines=5){
   if(line&&lines.length<maxLines)lines.push(line); return lines;
 }
 async function makeScenePng(text,index,total,plan){
-  const vertical=plan.format!=='long'; const c=document.createElement('canvas'); c.width=vertical?720:1280;c.height=vertical?1280:720; const ctx=c.getContext('2d'); const w=c.width,h=c.height;
+  const vertical=plan.format!=='long'; const c=document.createElement('canvas');
+  // Always render true Full HD: 1080x1920 Shorts/Reels or 1920x1080 long-form.
+  c.width=vertical?1080:1920;c.height=vertical?1920:1080; const ctx=c.getContext('2d'); const w=c.width,h=c.height;
+  const scale=w/(vertical?720:1280);
   const hue=(220+index*27+(plan.niche.charCodeAt(0)%30))%360; const g=ctx.createLinearGradient(0,0,w,h);g.addColorStop(0,`hsl(${hue} 58% 17%)`);g.addColorStop(1,`hsl(${(hue+58)%360} 72% 7%)`);ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
-  ctx.globalAlpha=.18;for(let i=0;i<8;i++){ctx.beginPath();ctx.arc((w/7)*(i%7),h*(.12+((i+index)%4)*.23),80+i*16,0,Math.PI*2);ctx.fillStyle=`hsl(${(hue+i*14)%360} 80% 58%)`;ctx.fill();}ctx.globalAlpha=1;
-  const pad=vertical?52:72;ctx.fillStyle='rgba(255,255,255,.11)';ctx.fillRect(pad,pad,w-pad*2,7);ctx.font=`800 ${vertical?23:22}px Arial`;ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillText(plan.nicheLabel.toUpperCase(),pad,pad+46);
-  const headline=index===0?plan.hook:text;ctx.font=`900 ${vertical?52:56}px Arial`;ctx.fillStyle='#fff';ctx.strokeStyle='rgba(0,0,0,.85)';ctx.lineWidth=8;ctx.lineJoin='round';const lines=wrapCanvasText(ctx,headline,w-pad*2,vertical?7:5);let y=vertical?310:220;const lh=vertical?64:68;for(const line of lines){ctx.strokeText(line,pad,y,w-pad*2);ctx.fillText(line,pad,y,w-pad*2);y+=lh;}
-  ctx.font=`700 ${vertical?21:19}px Arial`;ctx.fillStyle='rgba(255,255,255,.72)';ctx.fillText(`ORIGINAL EXPLAINER • ${index+1}/${total}`,pad,h-pad-24);
+  ctx.globalAlpha=.18;for(let i=0;i<8;i++){ctx.beginPath();ctx.arc((w/7)*(i%7),h*(.12+((i+index)%4)*.23),(80+i*16)*scale,0,Math.PI*2);ctx.fillStyle=`hsl(${(hue+i*14)%360} 80% 58%)`;ctx.fill();}ctx.globalAlpha=1;
+  const pad=(vertical?52:72)*scale;ctx.fillStyle='rgba(255,255,255,.11)';ctx.fillRect(pad,pad,w-pad*2,7*scale);ctx.font=`800 ${(vertical?23:22)*scale}px Arial`;ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillText(plan.nicheLabel.toUpperCase(),pad,pad+46*scale);
+  const headline=index===0?plan.hook:text;ctx.font=`900 ${(vertical?52:56)*scale}px Arial`;ctx.fillStyle='#fff';ctx.strokeStyle='rgba(0,0,0,.85)';ctx.lineWidth=8*scale;ctx.lineJoin='round';const lines=wrapCanvasText(ctx,headline,w-pad*2,vertical?7:5);let y=(vertical?310:220)*scale;const lh=(vertical?64:68)*scale;for(const line of lines){ctx.strokeText(line,pad,y,w-pad*2);ctx.fillText(line,pad,y,w-pad*2);y+=lh;}
+  ctx.font=`700 ${(vertical?21:19)*scale}px Arial`;ctx.fillStyle='rgba(255,255,255,.72)';ctx.fillText(`ORIGINAL EXPLAINER • ${index+1}/${total}`,pad,h-pad-24*scale);
   return await new Promise(resolve=>c.toBlob(resolve,'image/png'));
 }
 
@@ -462,7 +470,17 @@ async function renderVideo(){
   const total=audioSeconds;const per=total/scenes.length;let firstScene=null;
   for(let i=0;i<scenes.length;i++){const png=await makeScenePng(scenes[i],i,scenes.length,plan);if(i===0)firstScene=png;await ff.writeFile(`scene_${i}.png`,await fetchFile(png));setProgress(62+Math.round((i/scenes.length)*15));}
   const list=[];for(let i=0;i<scenes.length;i++){list.push(`file 'scene_${i}.png'`);list.push(`duration ${per.toFixed(3)}`);}list.push(`file 'scene_${scenes.length-1}.png'`);await ff.writeFile('scenes.txt',new TextEncoder().encode(list.join('\n')));for(const n of ['final.mp4','narration.wav']){try{await ff.deleteFile(n);}catch{}}
-  const args=['-f','concat','-safe','0','-i','scenes.txt'];if(audio){await ff.writeFile('narration.wav',await fetchFile(audio));args.push('-i','narration.wav');}args.push('-vf','fps=24,format=yuv420p','-c:v','libx264','-preset','ultrafast','-crf','23');args.push('-c:a','aac','-b:a','160k','-af','volume=1.35','-shortest');args.push('-movflags','+faststart','final.mp4');setStatus('Encoding the finished MP4 locally…');await ff.exec(args);const data=await ff.readFile('final.mp4');state.videoBlob=new Blob([data.buffer],{type:'video/mp4'});state.videoFile=new File([state.videoBlob],`${slug(plan.chosenTitle)}.mp4`,{type:'video/mp4'});state.thumbnailBlob=await makeThumbnail(plan,firstScene);state.srt=makeSrt(scenes,total);setProgress(100);setAgent('production','Narrated MP4 ready','good');setAgent('publishing','Ready to preview','good');showPreview();updatePublishGuard();return state.videoFile;
+  const args=['-f','concat','-safe','0','-i','scenes.txt'];if(audio){await ff.writeFile('narration.wav',await fetchFile(audio));args.push('-i','narration.wav');}
+  if(turboEnabled()){
+    // Keep Full HD 1080p while reducing file size. These explainers are mostly static graphics,
+    // so CRF + a capped bitrate saves upload time without dropping to 720p.
+    args.push('-vf','fps=24,format=yuv420p','-c:v','libx264','-preset','veryfast','-tune','stillimage','-crf','27','-maxrate','4000k','-bufsize','8000k');
+    args.push('-c:a','aac','-b:a','128k','-af','volume=1.35','-shortest');
+  }else{
+    args.push('-vf','fps=24,format=yuv420p','-c:v','libx264','-preset','veryfast','-crf','22','-maxrate','8000k','-bufsize','16000k');
+    args.push('-c:a','aac','-b:a','160k','-af','volume=1.35','-shortest');
+  }
+  args.push('-movflags','+faststart','final.mp4');setStatus(turboEnabled()?'Turbo encoding Full HD 1080p for faster upload…':'Encoding the finished Full HD 1080p MP4…');await ff.exec(args);const data=await ff.readFile('final.mp4');state.videoBlob=new Blob([data.buffer],{type:'video/mp4'});state.videoFile=new File([state.videoBlob],`${slug(plan.chosenTitle)}.mp4`,{type:'video/mp4'});state.thumbnailBlob=await makeThumbnail(plan,firstScene);state.srt=makeSrt(scenes,total);setProgress(100);setAgent('production',`1080p narrated MP4 ready · ${mb(state.videoBlob.size)} MB`,'good');setAgent('publishing','Ready to preview','good');showPreview();setStatus(`Video ready — Full HD 1080p · ${mb(state.videoBlob.size)} MB${turboEnabled()?' · TURBO UPLOAD':''}.`,'good');updatePublishGuard();return state.videoFile;
 }
 
 function cleanupUrls(){for(const u of state.renderUrls)URL.revokeObjectURL(u);state.renderUrls=[];}
@@ -520,8 +538,14 @@ function multipart(metadata,media,mediaType,boundary){return new Blob([`--${boun
 function xhrUpload(url,body,auth,onProgress){return new Promise((resolve,reject)=>{const x=new XMLHttpRequest();x.open('POST',url,true);x.setRequestHeader('Authorization',`Bearer ${auth}`);x.setRequestHeader('Content-Type',body.type);x.upload.onprogress=e=>{if(e.lengthComputable)onProgress?.(e.loaded/e.total);};x.onload=()=>{let d={};try{d=JSON.parse(x.responseText||'{}');}catch{d={raw:x.responseText};}if(x.status>=200&&x.status<300)resolve(d);else reject(new Error(d?.error?.message||d?.raw||`${x.status} ${x.statusText}`));};x.onerror=()=>reject(new Error('Network error during YouTube upload.'));x.send(body);});}
 async function uploadThumbnail(videoId){if(!state.thumbnailBlob)return;const u=new URL('https://www.googleapis.com/upload/youtube/v3/thumbnails/set');u.searchParams.set('videoId',videoId);const r=await fetch(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':'image/jpeg'},body:state.thumbnailBlob});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Thumbnail upload failed.');}
 async function uploadCaption(videoId){if(!state.srt)return;const meta={snippet:{videoId,language:'en',name:'ClipFree AI captions',isDraft:false}};const b=`cap_${Date.now()}`;const body=multipart(meta,new Blob([state.srt],{type:'application/x-subrip'}),'application/x-subrip',b);const u=new URL('https://www.googleapis.com/upload/youtube/v3/captions');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet');const r=await fetch(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':body.type},body});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Caption upload failed.');}
+async function loadPlaylistCache(){
+  if(state.playlistCacheLoaded)return;
+  const p=await apiJson(ytUrl('playlists',{part:'snippet,status',mine:'true',maxResults:50}));
+  for(const item of p.items||[]){const key=clean(item.snippet?.title).toLowerCase();if(key&&item.id)state.playlistCache.set(key,item.id);}
+  state.playlistCacheLoaded=true;
+}
 async function ensurePlaylist(name,description='Educational explainers created and published with ClipFree AI.'){
-  const safe=clean(name);if(!safe)return'';const p=await apiJson(ytUrl('playlists',{part:'snippet,status',mine:'true',maxResults:50}));let hit=p.items?.find(x=>clean(x.snippet?.title).toLowerCase()===safe.toLowerCase());if(hit)return hit.id;const d=await apiJson(ytUrl('playlists',{part:'snippet,status'}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snippet:{title:safe,description:clean(description).slice(0,5000)},status:{privacyStatus:'public'}})});return d.id||'';
+  const safe=clean(name);if(!safe)return'';await loadPlaylistCache();const key=safe.toLowerCase();if(state.playlistCache.has(key))return state.playlistCache.get(key);const d=await apiJson(ytUrl('playlists',{part:'snippet,status'}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snippet:{title:safe,description:clean(description).slice(0,5000)},status:{privacyStatus:'public'}})});if(d.id)state.playlistCache.set(key,d.id);return d.id||'';
 }
 function autoPlaylistSpecs(plan=state.plan){
   const specs=[];if(plan?.niche&&AUTO_PLAYLISTS[plan.niche])specs.push(AUTO_PLAYLISTS[plan.niche]);
@@ -544,20 +568,21 @@ async function uploadYoutube(){
   pullEditsIntoPlan();if(!state.videoBlob)throw new Error('Generate a video first.');if(!state.plan)throw new Error('No content package is ready.');if(!els.rights.checked)throw new Error('Confirm the factual / publishing review before uploading.');if(!isConnected())await requestToken();const title=clean(state.plan.chosenTitle);if(!title)throw new Error('A YouTube title is required.');els.uploadButton.disabled=true;els.uploadProgress.style.width='2%';setAgent('publishing','Uploading','working');
   try{
     const status={privacyStatus:els.privacy.value,selfDeclaredMadeForKids:els.madeForKids.value==='true'};const publishAt=els.schedule.value?new Date(els.schedule.value):null;if(publishAt&&Number.isFinite(publishAt.getTime())&&publishAt>Date.now()){status.privacyStatus='private';status.publishAt=publishAt.toISOString();}
-    const metadata={snippet:{title:title.slice(0,100),description:state.plan.description.slice(0,5000),categoryId:state.plan.categoryId||'27',defaultLanguage:'en',tags:state.plan.tags.slice(0,15)},status};const boundary=`clipfree_${Date.now()}`;const body=multipart(metadata,state.videoBlob,'video/mp4',boundary);const u=new URL('https://www.googleapis.com/upload/youtube/v3/videos');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet,status');u.searchParams.set('notifySubscribers','false');const result=await xhrUpload(u.toString(),body,await token(),p=>{els.uploadProgress.style.width=`${Math.round(2+p*90)}%`;els.uploadResult.textContent=`Uploading… ${Math.round(p*100)}%`;});
-    if(result.id&&els.uploadThumbnail.checked){els.uploadResult.textContent='Adding thumbnail…';await uploadThumbnail(result.id).catch(console.warn);}if(result.id&&els.uploadCaptions.checked&&state.srt){els.uploadResult.textContent='Adding captions…';await uploadCaption(result.id).catch(console.warn);}if(result.id){
-      const playlistSpecs=els.autoPlaylist?.checked?autoPlaylistSpecs(state.plan):[];
-      const manual=clean(els.playlistName?.value||'');
-      if(manual)playlistSpecs.push({title:manual,description:'High Value Explained videos.'});
-      const seen=new Set();
-      for(const spec of playlistSpecs){
-        if(!spec?.title||seen.has(spec.title.toLowerCase()))continue;seen.add(spec.title.toLowerCase());
-        els.uploadResult.textContent=`Adding playlist: ${spec.title}…`;
-        const pid=await ensurePlaylist(spec.title,spec.description).catch(()=> '');
-        if(pid)await addPlaylist(result.id,pid).catch(console.warn);
-      }
+    const metadata={snippet:{title:title.slice(0,100),description:state.plan.description.slice(0,5000),categoryId:state.plan.categoryId||'27',defaultLanguage:'en',tags:state.plan.tags.slice(0,15)},status};const boundary=`clipfree_${Date.now()}`;const body=multipart(metadata,state.videoBlob,'video/mp4',boundary);const u=new URL('https://www.googleapis.com/upload/youtube/v3/videos');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet,status');u.searchParams.set('notifySubscribers','false');
+    const started=performance.now();let lastT=started,lastLoaded=0;
+    els.uploadResult.textContent=`Uploading ${mb(state.videoBlob.size)} MB${turboEnabled()?' · TURBO':''}…`;
+    const result=await xhrUpload(u.toString(),body,await token(),p=>{const now=performance.now();const loaded=p*body.size;const dt=(now-lastT)/1000;if(dt>.65){const rate=(loaded-lastLoaded)/Math.max(.01,dt);const remain=Math.max(0,body.size-loaded);const eta=rate>0?Math.ceil(remain/rate):0;const mbps=(rate*8/1e6).toFixed(1);els.uploadResult.textContent=`Uploading… ${Math.round(p*100)}% · ${mbps} Mbps${eta?` · ~${eta}s left`:''}`;lastT=now;lastLoaded=loaded;}els.uploadProgress.style.width=`${Math.round(2+p*90)}%`;});
+    const uploadSeconds=((performance.now()-started)/1000).toFixed(1);
+    if(result.id){
+      // Run thumbnail, captions and playlist work together instead of waiting for each one in sequence.
+      const jobs=[];
+      if(els.uploadThumbnail.checked)jobs.push(uploadThumbnail(result.id));
+      if(els.uploadCaptions.checked&&state.srt)jobs.push(uploadCaption(result.id));
+      const playlistSpecs=els.autoPlaylist?.checked?autoPlaylistSpecs(state.plan):[];const manual=clean(els.playlistName?.value||'');if(manual)playlistSpecs.push({title:manual,description:'High Value Explained videos.'});const seen=new Set();
+      for(const spec of playlistSpecs){if(!spec?.title||seen.has(spec.title.toLowerCase()))continue;seen.add(spec.title.toLowerCase());jobs.push((async()=>{const pid=await ensurePlaylist(spec.title,spec.description);if(pid)await addPlaylist(result.id,pid);})());}
+      if(jobs.length){els.uploadResult.textContent='Main video uploaded — finishing thumbnail, captions and playlists in parallel…';await Promise.allSettled(jobs);}
     }
-    els.uploadProgress.style.width='100%';els.uploadResult.className='notice good';els.uploadResult.innerHTML=`Upload complete${result.id?`. <a href="https://www.youtube.com/watch?v=${encodeURIComponent(result.id)}" target="_blank" rel="noopener">Open on YouTube</a>`:''}.`;setAgent('publishing','Upload complete','good');setTimeout(()=>refreshAnalytics().catch(()=>{}),1500);return result;
+    els.uploadProgress.style.width='100%';els.uploadResult.className='notice good';els.uploadResult.innerHTML=`Upload complete in about ${uploadSeconds}s${result.id?`. <a href="https://www.youtube.com/watch?v=${encodeURIComponent(result.id)}" target="_blank" rel="noopener">Open on YouTube</a>`:''}.`;setAgent('publishing','Upload complete','good');setTimeout(()=>refreshAnalytics().catch(()=>{}),1500);return result;
   } catch(err){els.uploadProgress.style.width='0%';els.uploadResult.className='notice bad';els.uploadResult.textContent=err.message||String(err);setAgent('publishing','Needs attention','warn');throw err;}finally{els.uploadButton.disabled=!(isConnected()&&state.videoBlob);}
 }
 async function autoPublishCurrent(){if(!els.rights.checked){setStatus('Video created, but FULL AUTOPILOT did not upload because the publishing confirmation is not checked.','good');return;}if(!isConnected()){setStatus('Video created. Connect YouTube before FULL AUTOPILOT can publish.','good');return;}await uploadYoutube();}
@@ -573,6 +598,7 @@ els.saveAi.addEventListener('click',saveAi);els.saveYoutube.addEventListener('cl
 els.createPlaylists?.addEventListener('click',async()=>{els.createPlaylists.disabled=true;try{await ensureAllAutomaticPlaylists();}catch(err){if(els.playlistStatus){els.playlistStatus.className='notice bad';els.playlistStatus.textContent=err.message||String(err);}}finally{els.createPlaylists.disabled=false;}});
 [els.topic,els.title,els.description,els.tags,els.hashtags,els.thumbText,els.script].forEach(el=>el.addEventListener('input',renderScore));els.rights.addEventListener('change',updatePublishGuard);
 [els.market,els.revenueGoal].filter(Boolean).forEach(el=>el.addEventListener('change',()=>{state.settings.marketPreset=els.market?.value||'premium';state.settings.revenueGoal=revenueGoalValue();saveSettings();renderGrowthTargets();renderIdeas();}));
+els.fastUpload?.addEventListener('change',()=>{state.settings.fastUpload=els.fastUpload.checked;saveSettings();});
 window.addEventListener('beforeunload',cleanupUrls);
 
 loadSettings();resetAgents();setConnectedUI(false);renderGrowthTargets();renderIdeas();updatePublishGuard();
