@@ -112,6 +112,7 @@ const state = {
   thumbnailBlob: null,
   srt: '',
   ffmpeg: null,
+  kokoro: null,
   accessToken: '',
   expiresAt: 0,
   channel: null,
@@ -344,6 +345,67 @@ async function geminiTts(text){
   const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text}]}],generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:els.voice.value||'Kore'}}}}})});
   const data=await response.json().catch(()=>({})); if(!response.ok)throw new Error(data?.error?.message||`Gemini TTS failed (${response.status}).`); const part=data?.candidates?.[0]?.content?.parts?.find(p=>p?.inlineData?.data);if(!part)throw new Error('Gemini TTS returned no audio.');return pcmWav(b64Bytes(part.inlineData.data),24000);
 }
+function localVoiceName(){
+  const v=els.voice?.value||'Kore';
+  return ({Kore:'af_heart',Puck:'am_puck',Charon:'am_michael',Aoede:'af_aoede',Leda:'bf_emma'})[v]||'af_heart';
+}
+function splitForLocalTts(text,maxChars=260){
+  const sentences=clean(text).split(/(?<=[.!?])\s+/).filter(Boolean);
+  const chunks=[]; let current='';
+  for(const sentence of sentences){
+    if((current+' '+sentence).trim().length<=maxChars){current=(current+' '+sentence).trim();continue;}
+    if(current)chunks.push(current);
+    if(sentence.length<=maxChars){current=sentence;continue;}
+    const words=sentence.split(/\s+/);current='';
+    for(const word of words){
+      if((current+' '+word).trim().length>maxChars){if(current)chunks.push(current);current=word;}
+      else current=(current+' '+word).trim();
+    }
+  }
+  if(current)chunks.push(current);
+  return chunks.length?chunks:[clean(text)];
+}
+function floatSamplesToWav(samples,sampleRate=24000){
+  const dataBytes=samples.length*2;
+  const b=new ArrayBuffer(44+dataBytes),v=new DataView(b),u=new Uint8Array(b);
+  const ws=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));};
+  ws(0,'RIFF');v.setUint32(4,36+dataBytes,true);ws(8,'WAVE');ws(12,'fmt ');
+  v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,sampleRate,true);
+  v.setUint32(28,sampleRate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);ws(36,'data');v.setUint32(40,dataBytes,true);
+  let o=44;
+  for(let i=0;i<samples.length;i++,o+=2){const s=Math.max(-1,Math.min(1,Number(samples[i])||0));v.setInt16(o,s<0?s*0x8000:s*0x7fff,true);}
+  return new Blob([u],{type:'audio/wav'});
+}
+async function localKokoroTts(text){
+  setStatus('Loading the free local AI voice… First use can take a while on a phone.');
+  if(!state.kokoro){
+    const mod=await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm');
+    state.kokoro=await mod.KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',{
+      dtype:'q4',
+      device:'wasm',
+      progress_callback:p=>{
+        if(p?.progress!=null){
+          const pct=Math.max(0,Math.min(100,Math.round(Number(p.progress)||0)));
+          setStatus('Loading free local AI voice… '+pct+'%');
+        }
+      }
+    });
+  }
+  const pieces=splitForLocalTts(text);
+  const chunks=[]; let sampleRate=24000; let total=0;
+  for(let i=0;i<pieces.length;i++){
+    setStatus(`Generating free local narration… ${i+1}/${pieces.length}`);
+    const raw=await state.kokoro.generate(pieces[i],{voice:localVoiceName(),speed:1});
+    const data=raw?.data||raw?.audio;
+    if(!(data instanceof Float32Array)||!data.length)throw new Error('Local AI voice returned no audio samples.');
+    sampleRate=Number(raw?.sampling_rate||raw?.samplingRate||sampleRate)||24000;
+    chunks.push(data);total+=data.length;
+  }
+  const joined=new Float32Array(total);let offset=0;
+  for(const x of chunks){joined.set(x,offset);offset+=x.length;}
+  return floatSamplesToWav(joined,sampleRate);
+}
+
 async function mediaDuration(blob,kind='audio'){
   return await new Promise(resolve=>{const el=document.createElement(kind);const url=URL.createObjectURL(blob);el.preload='metadata';el.onloadedmetadata=()=>{const d=Number(el.duration||0);URL.revokeObjectURL(url);resolve(Number.isFinite(d)&&d>0?d:0);};el.onerror=()=>{URL.revokeObjectURL(url);resolve(0);};el.src=url;});
 }
@@ -358,11 +420,19 @@ async function makeThumbnail(plan,sceneBlob){
 
 async function renderVideo(){
   pullEditsIntoPlan(); if(!state.plan)throw new Error('Generate a content plan first.'); const plan=state.plan,scenes=sceneTexts(plan); setAgent('production','Rendering','working');setProgress(60);const ff=await ensureFfmpeg();let audio=null,audioSeconds=0;
-  if(state.settings.geminiKey){try{setStatus('Generating narration with Gemini…');audio=await geminiTts(plan.script);audioSeconds=await mediaDuration(audio,'audio');}catch(err){console.warn(err);setStatus(`Narration unavailable, using captions-first $0 rendering: ${err.message||err}`,'subtle');}}
-  const total=audioSeconds>2?audioSeconds:(plan.format==='long'?Math.max(150,scenes.length*14):Math.max(48,scenes.length*7));const per=total/scenes.length;let firstScene=null;
+  if(state.settings.geminiKey){
+    try{setStatus('Generating narration with Gemini…');audio=await geminiTts(plan.script);audioSeconds=await mediaDuration(audio,'audio');}
+    catch(err){console.warn('Gemini narration failed; switching to free local voice.',err);setStatus('Gemini narration unavailable — switching to the free local AI voice…','subtle');}
+  }
+  if(!audio){
+    try{audio=await localKokoroTts(plan.script);audioSeconds=await mediaDuration(audio,'audio');}
+    catch(err){console.error('Local narration failed',err);setAgent('production','Voice failed','warn');throw new Error(`I stopped instead of making another silent video. Free local narration could not finish on this device: ${err.message||err}`);}
+  }
+  if(!(audioSeconds>1))throw new Error('Narration was generated but its duration could not be verified, so the silent export was blocked.');
+  const total=audioSeconds;const per=total/scenes.length;let firstScene=null;
   for(let i=0;i<scenes.length;i++){const png=await makeScenePng(scenes[i],i,scenes.length,plan);if(i===0)firstScene=png;await ff.writeFile(`scene_${i}.png`,await fetchFile(png));setProgress(62+Math.round((i/scenes.length)*15));}
   const list=[];for(let i=0;i<scenes.length;i++){list.push(`file 'scene_${i}.png'`);list.push(`duration ${per.toFixed(3)}`);}list.push(`file 'scene_${scenes.length-1}.png'`);await ff.writeFile('scenes.txt',new TextEncoder().encode(list.join('\n')));for(const n of ['final.mp4','narration.wav']){try{await ff.deleteFile(n);}catch{}}
-  const args=['-f','concat','-safe','0','-i','scenes.txt'];if(audio){await ff.writeFile('narration.wav',await fetchFile(audio));args.push('-i','narration.wav');}args.push('-vf','fps=24,format=yuv420p','-c:v','libx264','-preset','ultrafast','-crf','23');if(audio)args.push('-c:a','aac','-b:a','128k','-shortest');else args.push('-an','-t',total.toFixed(2));args.push('-movflags','+faststart','final.mp4');setStatus('Encoding the finished MP4 locally…');await ff.exec(args);const data=await ff.readFile('final.mp4');state.videoBlob=new Blob([data.buffer],{type:'video/mp4'});state.videoFile=new File([state.videoBlob],`${slug(plan.chosenTitle)}.mp4`,{type:'video/mp4'});state.thumbnailBlob=await makeThumbnail(plan,firstScene);state.srt=makeSrt(scenes,total);setProgress(100);setAgent('production',audio?'Narrated MP4 ready':'Captions-first MP4 ready','good');setAgent('publishing','Ready to preview','good');showPreview();updatePublishGuard();return state.videoFile;
+  const args=['-f','concat','-safe','0','-i','scenes.txt'];if(audio){await ff.writeFile('narration.wav',await fetchFile(audio));args.push('-i','narration.wav');}args.push('-vf','fps=24,format=yuv420p','-c:v','libx264','-preset','ultrafast','-crf','23');args.push('-c:a','aac','-b:a','160k','-af','volume=1.35','-shortest');args.push('-movflags','+faststart','final.mp4');setStatus('Encoding the finished MP4 locally…');await ff.exec(args);const data=await ff.readFile('final.mp4');state.videoBlob=new Blob([data.buffer],{type:'video/mp4'});state.videoFile=new File([state.videoBlob],`${slug(plan.chosenTitle)}.mp4`,{type:'video/mp4'});state.thumbnailBlob=await makeThumbnail(plan,firstScene);state.srt=makeSrt(scenes,total);setProgress(100);setAgent('production','Narrated MP4 ready','good');setAgent('publishing','Ready to preview','good');showPreview();updatePublishGuard();return state.videoFile;
 }
 
 function cleanupUrls(){for(const u of state.renderUrls)URL.revokeObjectURL(u);state.renderUrls=[];}
