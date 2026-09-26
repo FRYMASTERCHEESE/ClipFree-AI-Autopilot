@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#080b12" />
+  <title>ClipFree AI — High-Value YouTube Autopilot</title>
+  <meta name="description" content="A browser-based YouTube automation studio for high-commercial-value educational niches. Generate original scripts, videos, thumbnails, SEO metadata, publish with YouTube APIs and learn from analytics." />
+  <meta name="robots" content="index,follow" />
+  <meta property="og:title" content="ClipFree AI — High-Value YouTube Autopilot" />
+  <meta property="og:description" content="Research → script → original video → thumbnail → SEO → preview → YouTube upload → analytics." />
+  <meta property="og:type" content="website" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script type="application/ld+json">
+  {
+    "@context":"https://schema.org",
+    "@type":"WebApplication",
+    "name":"ClipFree AI High-Value YouTube Autopilot",
+    "applicationCategory":"MultimediaApplication",
+    "operatingSystem":"Modern web browser",
+    "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
+    "description":"Browser-based YouTube automation for original educational videos, SEO packaging, publishing and analytics."
+  }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top">ClipFree <span>AI</span></a>
+    <nav>
+      <a href="#autopilot">Autopilot</a>
+      <a href="#studio">Content Pack</a>
+      <a href="#youtube">YouTube</a>
+      <a href="#analytics">Analytics</a>
+      <a class="pill" href="#setup">Setup</a>
+    </nav>
+  </header>
+
+  <div id="youtubeBanner" class="connection-banner">● YouTube not connected</div>
+
+  <main id="top">
+    <section class="hero">
+      <div class="badge">HIGH-VALUE NICHES • ORIGINAL VIDEOS • SEO • YOUTUBE AUTOPILOT</div>
+      <h1>Build an original YouTube channel <span>from one button.</span></h1>
+      <p class="lead">Choose Auto High-Value Mode or a niche. ClipFree creates the topic, script, motion-graphic video, narration when available, thumbnail, title, description, tags, hashtags, captions and YouTube upload package — then learns from your real channel analytics.</p>
+      <div class="hero-actions">
+        <a class="primary" href="#autopilot">Start High-Value Autopilot</a>
+        <a class="secondary" href="#setup">Connect free tools</a>
+      </div>
+      <div class="trust-row">
+        <span>✓ $0 local video renderer</span>
+        <span>✓ No watermark</span>
+        <span>✓ Gemini optional</span>
+        <span>✓ Official YouTube APIs</span>
+        <span>✓ Preview before publishing</span>
+      </div>
+      <p class="fineprint">No tool can guarantee a particular RPM, ranking, homepage placement, views or revenue. The system prioritizes advertiser-heavy educational categories and optimizes the parts you can control.</p>
+    </section>
+
+    <section id="autopilot" class="section-shell">
+      <div class="section-title">
+        <div>
+          <div class="badge">AUTONOMOUS CHANNEL OPERATOR</div>
+          <h2>One workflow. Every production step.</h2>
+          <p>Auto High-Value Mode focuses on commercially valuable educational categories: finance, insurance, legal education, real estate, AI/SaaS and business. The default workflow stays original instead of reposting third-party footage.</p>
+        </div>
+      </div>
+
+      <div class="control-grid">
+        <section class="card form-grid">
+          <h3>Channel strategy</h3>
+          <label><span>Niche</span>
+            <select id="nicheSelect">
+              <option value="auto" selected>💎 AUTO — high commercial value</option>
+              <option value="insurance">🛡️ Insurance education</option>
+              <option value="finance">💰 Personal finance & investing education</option>
+              <option value="legal">⚖️ Legal education</option>
+              <option value="realestate">🏠 Real estate & mortgages</option>
+              <option value="b2b-ai">🤖 AI, SaaS & business software</option>
+              <option value="business">📈 Business & marketing</option>
+            </select>
+          </label>
+
+          <label><span>Video format</span>
+            <select id="formatSelect">
+              <option value="short" selected>YouTube Short · 45–60 sec · 9:16</option>
+              <option value="long">Long-form explainer · 3–5 min · 16:9</option>
+            </select>
+          </label>
+
+          <label><span>Videos in this batch</span>
+            <select id="batchCount">
+              <option value="1" selected>1 video</option>
+              <option value="2">2 videos</option>
+              <option value="3">3 videos</option>
+              <option value="4">4 videos</option>
+            </select>
+          </label>
+
+          <label><span>Narration voice</span>
+            <select id="voiceSelect">
+              <option value="Kore" selected>Kore — clear</option>
+              <option value="Puck">Puck — energetic</option>
+              <option value="Charon">Charon — deeper</option>
+              <option value="Aoede">Aoede — bright</option>
+              <option value="Leda">Leda — smooth</option>
+            </select>
+          </label>
+
+          <label class="toggle-line"><input id="freeOnly" type="checkbox" checked /><span><strong>FREE-ONLY MODE</strong><small>Never requires paid image/video generation. Uses local graphics and optional Gemini free-tier calls.</small></span></label>
+          <label class="toggle-line"><input id="fullAutopilot" type="checkbox" /><span><strong>FULL AUTOPILOT</strong><small>After setup, generate and upload automatically. Leave OFF to preview first.</small></span></label>
+          <label class="toggle-line"><input id="rightsConfirm" type="checkbox" /><span><strong>Publishing confirmation</strong><small>I will review factual accuracy and confirm I have the right to publish the generated material.</small></span></label>
+
+          <div class="button-row">
+            <button id="generatePlan" class="primary" type="button">1. Generate complete plan</button>
+            <button id="createVideo" class="secondary" type="button" disabled>2. Create original video</button>
+          </div>
+          <button id="runBatch" class="primary full" type="button">✨ Run complete batch</button>
+          <div id="autopilotStatus" class="notice subtle">Ready. AUTO mode rotates through high-commercial-value educational niches and avoids duplicate topic ideas stored on this device.</div>
+          <div class="progress"><div id="autopilotProgress"></div></div>
+        </section>
+
+        <section class="card agent-card">
+          <div class="panel-head"><div><h3>AI agent team</h3><p>Modeled on the end-to-end agent workflow you showed.</p></div></div>
+          <div class="agent-list">
+            <div class="agent-row" data-agent="strategy"><div><strong>🎯 Content Strategy</strong><small>niche, angle, audience, calendar</small></div><span data-state>Ready</span></div>
+            <div class="agent-row" data-agent="research"><div><strong>🔎 Topic Research</strong><small>evergreen intent, duplication checks, risk notes</small></div><span data-state>Ready</span></div>
+            <div class="agent-row" data-agent="script"><div><strong>✍️ Script Writer</strong><small>hook, retention beats, CTA</small></div><span data-state>Ready</span></div>
+            <div class="agent-row" data-agent="seo"><div><strong>🔍 SEO Optimizer</strong><small>title, description, tags, hashtags, filename</small></div><span data-state>Ready</span></div>
+            <div class="agent-row" data-agent="thumbnail"><div><strong>🖼️ Thumbnail Designer</strong><small>mobile-safe text + variants</small></div><span data-state>Ready</span></div>
+            <div class="agent-row" data-agent="production"><div><strong>🎬 Production</strong><small>graphics, captions, narration, render</small></div><span data-state>Ready</span></div>
+            <div class="agent-row" data-agent="publishing"><div><strong>📤 Publishing</strong><small>metadata, thumbnail, playlist, schedule</small></div><span data-state>Ready</span></div>
+            <div class="agent-row" data-agent="analytics"><div><strong>📊 Analytics</strong><small>real channel feedback loop</small></div><span data-state>Ready</span></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="studio" class="section-shell">
+      <div class="section-title">
+        <div>
+          <div class="badge">COMPLETE SEO + CONTENT PACKAGE</div>
+          <h2>Everything generated together.</h2>
+          <p>The title, opening description lines, script, keywords, hashtags and thumbnail message stay aligned around the same viewer intent without keyword stuffing.</p>
+        </div>
+        <div id="seoScore" class="score-box"><strong>—</strong><span>SEO readiness</span></div>
+      </div>
+
+      <div class="content-grid">
+        <section class="card form-grid">
+          <label><span>Chosen topic</span><input id="topicOutput" placeholder="Generate a plan first" /></label>
+          <label><span>YouTube title</span><textarea id="titleOutput" rows="2"></textarea></label>
+          <label><span>Description</span><textarea id="descriptionOutput" rows="8"></textarea></label>
+          <label><span>Tags / keyword cluster</span><textarea id="tagsOutput" rows="5"></textarea></label>
+          <label><span>Hashtags</span><textarea id="hashtagsOutput" rows="3"></textarea></label>
+          <label><span>Thumbnail text</span><input id="thumbnailOutput" maxlength="42" /></label>
+        </section>
+
+        <section class="card form-grid">
+          <label><span>Full script</span><textarea id="scriptOutput" rows="18"></textarea></label>
+          <div>
+            <span class="field-label">Title A/B ideas</span>
+            <div id="titleVariants" class="variant-list"><span class="muted">Generate a plan to see variants.</span></div>
+          </div>
+          <div>
+            <span class="field-label">Verification / quality checks</span>
+            <div id="qualityChecks" class="check-list"><span class="muted">No plan yet.</span></div>
+          </div>
+        </section>
+      </div>
+
+      <section class="card video-preview-card">
+        <div class="panel-head"><div><h3>Generated video preview</h3><p>Original graphics are created locally in your browser. Gemini narration is added only when configured and available.</p></div><div class="mini-actions"><a id="downloadVideo" class="secondary hidden" download>Download video</a><a id="downloadThumbnail" class="secondary hidden" download>Download thumbnail</a></div></div>
+        <div class="preview-wrap">
+          <video id="videoPreview" class="hidden" controls playsinline></video>
+          <div id="previewEmpty" class="empty-preview"><div class="play-icon">▶</div><h3>No video generated yet</h3><p>Your finished Short or long-form explainer will appear here.</p></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="youtube" class="section-shell">
+      <div class="section-title">
+        <div>
+          <div class="badge">OFFICIAL YOUTUBE API</div>
+          <h2>Preview, schedule or publish.</h2>
+          <p>Connect your own YouTube account. ClipFree can upload the generated video, metadata, thumbnail and captions. Google controls OAuth approval and may restrict unverified API-project uploads.</p>
+        </div>
+        <div class="connect-actions"><button id="connectYoutube" class="primary" type="button">Connect YouTube</button><button id="disconnectYoutube" class="secondary hidden" type="button">Disconnect</button></div>
+      </div>
+
+      <div id="youtubeStatus" class="notice subtle">YouTube is not connected yet.</div>
+
+      <div class="control-grid">
+        <section class="card form-grid">
+          <h3>Publishing settings</h3>
+          <label><span>Visibility</span><select id="privacySelect"><option value="private" selected>Private — safest while testing</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></label>
+          <label><span>Schedule <em>(optional)</em></span><input id="scheduleAt" type="datetime-local" /></label>
+          <label><span>Playlist</span><input id="playlistName" value="High-Value Explainers" maxlength="150" /></label>
+          <label><span>Audience</span><select id="madeForKids"><option value="false" selected>Not made for kids</option><option value="true">Made for kids</option></select></label>
+          <label class="toggle-line"><input id="uploadCaptions" type="checkbox" checked /><span><strong>Upload captions</strong><small>Generated SRT when available.</small></span></label>
+          <label class="toggle-line"><input id="uploadThumbnail" type="checkbox" checked /><span><strong>Upload thumbnail</strong><small>Generated locally from your content package.</small></span></label>
+          <button id="uploadYoutube" class="primary" type="button" disabled>Upload current video to YouTube</button>
+          <div class="progress"><div id="uploadProgress"></div></div>
+          <div id="uploadResult" class="notice subtle">Generate a video and connect YouTube first.</div>
+        </section>
+
+        <section class="card">
+          <div class="panel-head"><div><h3>Publishing guard</h3><p>Checks before the upload starts.</p></div></div>
+          <div id="publishGuard" class="guard-list">
+            <div><span>○</span> Original generated visuals</div>
+            <div><span>○</span> Accurate educational framing</div>
+            <div><span>○</span> SEO package complete</div>
+            <div><span>○</span> Thumbnail ready</div>
+            <div><span>○</span> Rights / factual review confirmed</div>
+            <div><span>○</span> YouTube connected</div>
+          </div>
+          <div class="notice subtle">Finance, insurance, legal and mortgage videos are generated as general education. The system avoids personal recommendations and time-sensitive claims unless you independently verify them.</div>
+        </section>
+      </div>
+    </section>
+
+    <section id="analytics" class="section-shell">
+      <div class="section-title">
+        <div>
+          <div class="badge">ANALYTICS FEEDBACK LOOP</div>
+          <h2>Use what viewers actually do.</h2>
+          <p>When connected, load your recent channel metrics and videos. The next planning pass can use broad winning themes while avoiding copying an old upload.</p>
+        </div>
+        <button id="refreshAnalytics" class="secondary" type="button" disabled>Refresh analytics</button>
+      </div>
+
+      <div class="metric-grid">
+        <article class="metric"><span>Views · 28 days</span><strong id="metricViews">—</strong></article>
+        <article class="metric"><span>Watch hours · 28 days</span><strong id="metricWatch">—</strong></article>
+        <article class="metric"><span>Net subscribers · 28 days</span><strong id="metricSubs">—</strong></article>
+        <article class="metric"><span>Channel</span><strong id="metricChannel">—</strong></article>
+      </div>
+
+      <div class="control-grid">
+        <section class="card"><div class="panel-head"><div><h3>Recent videos</h3><p>Raw YouTube data; no fake performance.</p></div></div><div id="recentVideos" class="list-body muted">Connect YouTube to load recent videos.</div></section>
+        <section class="card"><div class="panel-head"><div><h3>What to make next</h3><p>Suggestions derived from current channel themes plus the high-value niche library.</p></div></div><div id="nextIdeas" class="list-body muted">Generate a plan or connect YouTube.</div></section>
+      </div>
+    </section>
+
+    <section id="setup" class="section-shell">
+      <div class="section-title">
+        <div>
+          <div class="badge">ONE-TIME SETUP</div>
+          <h2>Keep the default path at $0.</h2>
+          <p>All settings are stored in this browser. Do not put a Google OAuth client secret into a static website.</p>
+        </div>
+      </div>
+
+      <div class="control-grid">
+        <section class="card form-grid">
+          <h3>Gemini — optional</h3>
+          <label><span>Gemini API key</span><input id="geminiApiKey" type="password" autocomplete="off" placeholder="Optional — local planner works without it" /></label>
+          <label><span>Text model</span><input id="geminiTextModel" value="gemini-3.7-flash" /></label>
+          <label><span>TTS model</span><input id="geminiTtsModel" value="gemini-3.1-flash-tts-preview" /></label>
+          <button id="saveAi" class="primary" type="button">Save AI settings on this device</button>
+          <div id="aiStatus" class="notice subtle">No Gemini key required for the local $0 planner and original graphics renderer.</div>
+          <p class="fineprint">Gemini model availability and free-tier quotas are controlled by Google and can change. FREE-ONLY MODE falls back instead of intentionally calling paid image/video models.</p>
+        </section>
+
+        <section class="card form-grid">
+          <h3>YouTube / Google</h3>
+          <label><span>Google OAuth Client ID</span><input id="googleClientId" autocomplete="off" placeholder="1234567890-xxxx.apps.googleusercontent.com" /></label>
+          <button id="saveYoutube" class="primary" type="button">Save YouTube settings</button>
+          <div id="youtubeSetupStatus" class="notice subtle">Enable YouTube Data API v3 and YouTube Analytics API in Google Cloud, then create an OAuth 2.0 Web client.</div>
+          <ol class="setup-list">
+            <li>Add <code>https://frymastercheese.github.io</code> as an authorized JavaScript origin.</li>
+            <li>If using a custom domain, add that HTTPS origin too.</li>
+            <li>Use <code>privacy.html</code> and <code>terms.html</code> for your app-policy pages.</li>
+            <li>Google may force uploads to Private until your YouTube API project passes its compliance/audit requirements.</li>
+          </ol>
+        </section>
+      </div>
+    </section>
+
+    <section class="safety-section">
+      <h2>What “fully automated” means here</h2>
+      <p>The browser can generate, render, package and upload while this page is open. A static GitHub Pages site cannot reliably run a 24/7 background worker after your phone/laptop closes the tab. The included workflow therefore gives you a real one-click browser autopilot without pretending GitHub Pages is a permanent server.</p>
+      <p>SEO is optimized for clarity, relevance, packaging and search intent. Actual distribution is decided by YouTube and viewers, including click-through, watch time, retention, satisfaction and audience fit.</p>
+    </section>
+  </main>
+
+  <footer>
+    ClipFree AI • Original high-value educational video automation • No watermark added by the app<br />
+    <a href="privacy.html">Privacy Policy</a> • <a href="terms.html">Terms</a> • <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms</a> • <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

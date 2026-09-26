@@ -1,0 +1,26 @@
+CLIPFREE AI — HIGH-VALUE YOUTUBE AUTOPILOT
+
+READY-TO-UPLOAD BUILD
+
+1. Back up your current GitHub repository first.
+2. Open: FRYMASTERCHEESE/Video-clipper
+3. Upload ALL files from this package to the repository root.
+4. Replace the old index.html, styles.css and app.js when GitHub asks.
+5. Keep GitHub Pages enabled for the main branch/root.
+6. Wait for the green Pages deployment, then open:
+   https://frymastercheese.github.io/Video-clipper/
+
+WHAT CHANGED
+- Removed the animal/Stick-Man-focused workflow from this replacement build.
+- Added Auto High-Value Mode.
+- Added Finance, Insurance, Legal Education, Real Estate/Mortgages, AI/SaaS, and Business/Marketing.
+- Added complete script + SEO package generation.
+- Added original local motion-graphic video generation.
+- Added optional Gemini scripts + narration.
+- Added original thumbnail generation.
+- Added preview-first and Full Autopilot modes.
+- Added YouTube upload, captions, thumbnail, playlist, scheduling, analytics and feedback loop.
+- Added Privacy Policy and Terms pages.
+
+IMPORTANT
+I could inspect your GitHub repository from ChatGPT, but the connected GitHub integration currently returns HTTP 403 for write/create operations. That means this build is ready, but I could not push it into your live repo from this chat. Uploading this package is the safe fallback until GitHub write permission is restored.
