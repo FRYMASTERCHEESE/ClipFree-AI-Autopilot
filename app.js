@@ -160,6 +160,17 @@ function formatNumber(value){ return new Intl.NumberFormat(undefined,{notation:N
 function dateYmd(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function mb(bytes){return (Number(bytes||0)/1048576).toFixed(Number(bytes||0)>=10485760?1:2);}
 function turboEnabled(){return els.fastUpload?.checked!==false;}
+function mobileSafeRender(){
+  const ua=navigator.userAgent||'';
+  const lowMemory=Number(navigator.deviceMemory||0)>0&&Number(navigator.deviceMemory||0)<=6;
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua)||lowMemory;
+}
+function renderSourceSize(plan){
+  const vertical=plan.format!=='long';
+  if(mobileSafeRender()) return vertical?{w:720,h:1280}:{w:1280,h:720};
+  return vertical?{w:1080,h:1920}:{w:1920,h:1080};
+}
+function finalVideoSize(plan){return plan.format!=='long'?{w:1080,h:1920}:{w:1920,h:1080};}
 
 function marketContext(){
   const value=els.market?.value||'premium';
@@ -363,8 +374,9 @@ function wrapCanvasText(ctx,text,maxWidth,maxLines=5){
 }
 async function makeScenePng(text,index,total,plan){
   const vertical=plan.format!=='long'; const c=document.createElement('canvas');
-  // Always render true Full HD: 1080x1920 Shorts/Reels or 1920x1080 long-form.
-  c.width=vertical?1080:1920;c.height=vertical?1920:1080; const ctx=c.getContext('2d'); const w=c.width,h=c.height;
+  // Phones render lighter scene frames to avoid browser memory pressure, then FFmpeg
+  // scales the final export to Full HD 1080p. Desktop keeps native Full-HD source frames.
+  const source=renderSourceSize(plan);c.width=source.w;c.height=source.h; const ctx=c.getContext('2d'); const w=c.width,h=c.height;
   const scale=w/(vertical?720:1280);
   const hue=(220+index*27+(plan.niche.charCodeAt(0)%30))%360; const g=ctx.createLinearGradient(0,0,w,h);g.addColorStop(0,`hsl(${hue} 58% 17%)`);g.addColorStop(1,`hsl(${(hue+58)%360} 72% 7%)`);ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
   ctx.globalAlpha=.18;for(let i=0;i<8;i++){ctx.beginPath();ctx.arc((w/7)*(i%7),h*(.12+((i+index)%4)*.23),(80+i*16)*scale,0,Math.PI*2);ctx.fillStyle=`hsl(${(hue+i*14)%360} 80% 58%)`;ctx.fill();}ctx.globalAlpha=1;
@@ -387,7 +399,7 @@ function localVoiceName(){
   const v=els.voice?.value||'Kore';
   return ({Kore:'af_heart',Puck:'am_puck',Charon:'am_michael',Aoede:'af_aoede',Leda:'bf_emma'})[v]||'af_heart';
 }
-function splitForLocalTts(text,maxChars=260){
+function splitForLocalTts(text,maxChars=mobileSafeRender()?180:260){
   const sentences=clean(text).split(/(?<=[.!?])\s+/).filter(Boolean);
   const chunks=[]; let current='';
   for(const sentence of sentences){
@@ -457,30 +469,94 @@ async function makeThumbnail(plan,sceneBlob){
 }
 
 async function renderVideo(){
-  pullEditsIntoPlan(); if(!state.plan)throw new Error('Generate a content plan first.'); const plan=state.plan,scenes=sceneTexts(plan); setAgent('production','Rendering','working');setProgress(60);const ff=await ensureFfmpeg();let audio=null,audioSeconds=0;
+  pullEditsIntoPlan();
+  if(!state.plan)throw new Error('Generate a content plan first.');
+  const plan=state.plan,scenes=sceneTexts(plan),mobile=mobileSafeRender(),finalSize=finalVideoSize(plan);
+  setAgent('production','Preparing narration','working');setProgress(58);
+
+  // IMPORTANT: make narration before loading FFmpeg. Loading the FFmpeg WASM runtime
+  // and the local Kokoro voice model at the same time can exhaust memory on phones.
+  let audio=null,audioSeconds=0,usedLocalVoice=false;
   if(state.settings.geminiKey){
     try{setStatus('Generating narration with Gemini…');audio=await geminiTts(plan.script);audioSeconds=await mediaDuration(audio,'audio');}
     catch(err){console.warn('Gemini narration failed; switching to free local voice.',err);setStatus('Gemini narration unavailable — switching to the free local AI voice…','subtle');}
   }
   if(!audio){
-    try{audio=await localKokoroTts(plan.script);audioSeconds=await mediaDuration(audio,'audio');}
+    try{usedLocalVoice=true;audio=await localKokoroTts(plan.script);audioSeconds=await mediaDuration(audio,'audio');}
     catch(err){console.error('Local narration failed',err);setAgent('production','Voice failed','warn');throw new Error(`I stopped instead of making another silent video. Free local narration could not finish on this device: ${err.message||err}`);}
   }
   if(!(audioSeconds>1))throw new Error('Narration was generated but its duration could not be verified, so the silent export was blocked.');
-  const total=audioSeconds;const per=total/scenes.length;let firstScene=null;
-  for(let i=0;i<scenes.length;i++){const png=await makeScenePng(scenes[i],i,scenes.length,plan);if(i===0)firstScene=png;await ff.writeFile(`scene_${i}.png`,await fetchFile(png));setProgress(62+Math.round((i/scenes.length)*15));}
-  const list=[];for(let i=0;i<scenes.length;i++){list.push(`file 'scene_${i}.png'`);list.push(`duration ${per.toFixed(3)}`);}list.push(`file 'scene_${scenes.length-1}.png'`);await ff.writeFile('scenes.txt',new TextEncoder().encode(list.join('\n')));for(const n of ['final.mp4','narration.wav']){try{await ff.deleteFile(n);}catch{}}
-  const args=['-f','concat','-safe','0','-i','scenes.txt'];if(audio){await ff.writeFile('narration.wav',await fetchFile(audio));args.push('-i','narration.wav');}
-  if(turboEnabled()){
-    // Keep Full HD 1080p while reducing file size. These explainers are mostly static graphics,
-    // so CRF + a capped bitrate saves upload time without dropping to 720p.
-    args.push('-vf','fps=24,format=yuv420p','-c:v','libx264','-preset','veryfast','-tune','stillimage','-crf','27','-maxrate','4000k','-bufsize','8000k');
-    args.push('-c:a','aac','-b:a','128k','-af','volume=1.35','-shortest');
-  }else{
-    args.push('-vf','fps=24,format=yuv420p','-c:v','libx264','-preset','veryfast','-crf','22','-maxrate','8000k','-bufsize','16000k');
-    args.push('-c:a','aac','-b:a','160k','-af','volume=1.35','-shortest');
+
+  // On phones, release the voice model before loading FFmpeg. It will reload only when
+  // another video needs local narration, trading a little startup time for much lower RAM use.
+  if(mobile&&usedLocalVoice&&state.kokoro){
+    try{await state.kokoro.dispose?.();}catch{}
+    state.kokoro=null;
+    await sleep(120);
   }
-  args.push('-movflags','+faststart','final.mp4');setStatus(turboEnabled()?'Turbo encoding Full HD 1080p for faster upload…':'Encoding the finished Full HD 1080p MP4…');await ff.exec(args);const data=await ff.readFile('final.mp4');state.videoBlob=new Blob([data.buffer],{type:'video/mp4'});state.videoFile=new File([state.videoBlob],`${slug(plan.chosenTitle)}.mp4`,{type:'video/mp4'});state.thumbnailBlob=await makeThumbnail(plan,firstScene);state.srt=makeSrt(scenes,total);setProgress(100);setAgent('production',`1080p narrated MP4 ready · ${mb(state.videoBlob.size)} MB`,'good');setAgent('publishing','Ready to preview','good');showPreview();setStatus(`Video ready — Full HD 1080p · ${mb(state.videoBlob.size)} MB${turboEnabled()?' · TURBO UPLOAD':''}.`,'good');updatePublishGuard();return state.videoFile;
+
+  setAgent('production',mobile?'Mobile-safe 1080p render':'1080p render','working');
+  setStatus(mobile?'Preparing mobile-safe Full HD render…':'Loading the Full HD video renderer…');
+  const ff=await ensureFfmpeg();
+  const total=audioSeconds,per=total/scenes.length;let firstScene=null;
+
+  try{
+    for(let i=0;i<scenes.length;i++){
+      setStatus(`Preparing scene ${i+1}/${scenes.length}${mobile?' · mobile-safe memory mode':''}…`);
+      const png=await makeScenePng(scenes[i],i,scenes.length,plan);
+      if(i===0)firstScene=png;
+      await ff.writeFile(`scene_${i}.png`,await fetchFile(png));
+      setProgress(62+Math.round((i/scenes.length)*15));
+      // Give the browser a chance to paint/respond between large canvas operations.
+      if(mobile)await sleep(35);
+    }
+
+    const list=[];
+    for(let i=0;i<scenes.length;i++){list.push(`file 'scene_${i}.png'`);list.push(`duration ${per.toFixed(3)}`);}
+    list.push(`file 'scene_${scenes.length-1}.png'`);
+    await ff.writeFile('scenes.txt',new TextEncoder().encode(list.join('\n')));
+    for(const n of ['final.mp4','narration.wav']){try{await ff.deleteFile(n);}catch{}}
+
+    const args=['-f','concat','-safe','0','-i','scenes.txt'];
+    await ff.writeFile('narration.wav',await fetchFile(audio));args.push('-i','narration.wav');
+
+    const filters=[];
+    // Mobile source frames are intentionally smaller to prevent freezes, but the exported
+    // MP4 is still 1080x1920 or 1920x1080.
+    if(mobile)filters.push(`scale=${finalSize.w}:${finalSize.h}:flags=fast_bilinear`);
+    filters.push('fps=24','format=yuv420p');
+
+    if(turboEnabled()){
+      args.push('-vf',filters.join(','),'-c:v','libx264','-preset',mobile?'ultrafast':'veryfast','-tune','stillimage','-crf',mobile?'28':'27','-maxrate',mobile?'3500k':'4000k','-bufsize',mobile?'7000k':'8000k');
+      args.push('-c:a','aac','-b:a','128k','-af','volume=1.35','-shortest');
+    }else{
+      args.push('-vf',filters.join(','),'-c:v','libx264','-preset',mobile?'ultrafast':'veryfast','-crf',mobile?'24':'22','-maxrate',mobile?'6000k':'8000k','-bufsize',mobile?'12000k':'16000k');
+      args.push('-c:a','aac','-b:a','160k','-af','volume=1.35','-shortest');
+    }
+    if(mobile)args.push('-threads','1');
+    args.push('-movflags','+faststart','final.mp4');
+
+    setStatus(mobile?'Encoding Full HD 1080p in mobile-safe mode…':'Encoding the Full HD 1080p MP4…');
+    await sleep(mobile?80:0);
+    await ff.exec(args);
+    const data=await ff.readFile('final.mp4');
+    state.videoBlob=new Blob([data.buffer],{type:'video/mp4'});
+    state.videoFile=new File([state.videoBlob],`${slug(plan.chosenTitle)}.mp4`,{type:'video/mp4'});
+    state.thumbnailBlob=await makeThumbnail(plan,firstScene);
+    state.srt=makeSrt(scenes,total);
+    setProgress(100);
+    setAgent('production',`1080p narrated MP4 ready · ${mb(state.videoBlob.size)} MB`,'good');
+    setAgent('publishing','Ready to preview','good');
+    showPreview();
+    setStatus(`Video ready — Full HD 1080p · ${mb(state.videoBlob.size)} MB${mobile?' · MOBILE-SAFE':''}${turboEnabled()?' · TURBO UPLOAD':''}.`,'good');
+    updatePublishGuard();
+    return state.videoFile;
+  } finally {
+    // Free the in-browser FFmpeg filesystem and WASM heap aggressively on phones.
+    for(let i=0;i<scenes.length;i++){try{await ff.deleteFile(`scene_${i}.png`);}catch{}}
+    for(const n of ['scenes.txt','narration.wav','final.mp4']){try{await ff.deleteFile(n);}catch{}}
+    if(mobile){try{ff.terminate?.();}catch{} state.ffmpeg=null;}
+  }
 }
 
 function cleanupUrls(){for(const u of state.renderUrls)URL.revokeObjectURL(u);state.renderUrls=[];}
