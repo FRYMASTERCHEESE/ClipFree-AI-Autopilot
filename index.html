@@ -42,7 +42,7 @@
     <section class="hero">
       <div class="badge">HIGH-VALUE NICHES • ORIGINAL VIDEOS • SEO • YOUTUBE AUTOPILOT</div>
       <h1>Build an original YouTube channel <span>from one button.</span></h1>
-      <p class="lead">Choose Auto High-Value Mode or a niche. ClipFree creates the topic, script, motion-graphic video, narration when available, thumbnail, title, description, tags, hashtags, captions and YouTube upload package — then learns from your real channel analytics.</p>
+      <p class="lead">Choose Auto High-Value Mode or a niche. ClipFree creates the topic, script, original video, narration, thumbnail, title, description, tags, hashtags, captions, automatic niche playlists and YouTube upload package — then learns from your real channel analytics.</p>
       <div class="hero-actions">
         <a class="primary" href="#autopilot">Start High-Value Autopilot</a>
         <a class="secondary" href="#setup">Connect free tools</a>
@@ -87,6 +87,20 @@
               <option value="long">Long-form explainer · 3–5 min · 16:9</option>
             </select>
           </label>
+
+          <label><span>Audience markets</span>
+            <select id="marketPreset">
+              <option value="premium" selected>💎 Premium English markets · US · Canada · UK · Australia · NZ</option>
+              <option value="us">🇺🇸 United States focus</option>
+              <option value="global">🌍 Global English</option>
+            </select>
+          </label>
+
+          <label><span>Monthly revenue goal <em>(planning target only)</em></span>
+            <input id="revenueGoal" type="number" min="0" step="1000" value="30000" inputmode="numeric" />
+          </label>
+
+          <div class="notice subtle"><strong>Faceless growth mode:</strong> topics, wording and packaging are optimized for advertiser-heavy English-speaking markets. Organic YouTube traffic cannot be forced to a country, and the $30,000/month figure is a goal — not a guaranteed result.</div>
 
           <label><span>Videos in this batch</span>
             <select id="batchCount">
@@ -195,7 +209,10 @@
           <h3>Publishing settings</h3>
           <label><span>Visibility</span><select id="privacySelect"><option value="private" selected>Private — safest while testing</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></label>
           <label><span>Schedule <em>(optional)</em></span><input id="scheduleAt" type="datetime-local" /></label>
-          <label><span>Playlist</span><input id="playlistName" value="High-Value Explainers" maxlength="150" /></label>
+          <label class="toggle-line"><input id="autoPlaylist" type="checkbox" checked /><span><strong>Automatic niche playlists</strong><small>Creates the right playlist for each niche and also adds Shorts or long-form videos to a format playlist.</small></span></label>
+          <label><span>Extra/manual playlist <em>(optional)</em></span><input id="playlistName" value="" placeholder="Leave blank for automatic playlists only" maxlength="150" /></label>
+          <button id="createPlaylists" class="secondary" type="button">Create all automatic playlists on YouTube</button>
+          <div id="playlistStatus" class="notice subtle">Automatic playlists: Money & Finance, Insurance, Law, Real Estate & Mortgages, AI & SaaS, Business & Marketing, High Value Shorts and High Value Deep Dives.</div>
           <label><span>Audience</span><select id="madeForKids"><option value="false" selected>Not made for kids</option><option value="true">Made for kids</option></select></label>
           <label class="toggle-line"><input id="uploadCaptions" type="checkbox" checked /><span><strong>Upload captions</strong><small>Generated SRT when available.</small></span></label>
           <label class="toggle-line"><input id="uploadThumbnail" type="checkbox" checked /><span><strong>Upload thumbnail</strong><small>Generated locally from your content package.</small></span></label>
@@ -234,6 +251,8 @@
         <article class="metric"><span>Watch hours · 28 days</span><strong id="metricWatch">—</strong></article>
         <article class="metric"><span>Net subscribers · 28 days</span><strong id="metricSubs">—</strong></article>
         <article class="metric"><span>Channel</span><strong id="metricChannel">—</strong></article>
+        <article class="metric"><span>Monthly goal</span><strong id="metricGoal">$30,000</strong></article>
+        <article class="metric"><span>Primary markets</span><strong id="metricMarkets">US · CA · UK · AU · NZ</strong></article>
       </div>
 
       <div class="control-grid">
