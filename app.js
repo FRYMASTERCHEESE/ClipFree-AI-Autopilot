@@ -4,6 +4,10 @@ import { fetchFile, toBlobURL } from 'https://unpkg.com/@ffmpeg/util@0.12.1/dist
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = 'clipfree_high_value_settings_v1';
 const USED_TOPICS_KEY = 'clipfree_high_value_topics_v1';
+const NETWORK_TIMEOUT_MS = 45000;
+const FFMPEG_LOAD_TIMEOUT_MS = 90000;
+const FFMPEG_EXEC_TIMEOUT_MS = 240000;
+const TTS_WORKER_TIMEOUT_MS = 180000;
 const SCOPES = [
   'https://www.googleapis.com/auth/youtube.force-ssl',
   'https://www.googleapis.com/auth/yt-analytics.readonly'
@@ -172,6 +176,38 @@ function renderSourceSize(plan){
 }
 function finalVideoSize(plan){return plan.format!=='long'?{w:1080,h:1920}:{w:1920,h:1080};}
 
+async function withTimeout(promise,ms,label='Operation'){
+  let timer;
+  try{
+    return await Promise.race([
+      promise,
+      new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(`${label} timed out. Please check your connection and try again.`)),ms);})
+    ]);
+  } finally { clearTimeout(timer); }
+}
+async function fetchWithTimeout(url,options={},ms=NETWORK_TIMEOUT_MS){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),ms);
+  try{return await fetch(url,{...options,signal:controller.signal});}
+  catch(err){
+    if(err?.name==='AbortError')throw new Error('Network request timed out. Please try again.');
+    throw err;
+  } finally {clearTimeout(timer);}
+}
+let wakeLockSentinel=null;
+async function keepScreenAwake(){
+  if(!('wakeLock' in navigator)||wakeLockSentinel)return;
+  try{wakeLockSentinel=await navigator.wakeLock.request('screen');wakeLockSentinel.addEventListener?.('release',()=>{wakeLockSentinel=null;});}catch{}
+}
+async function releaseWakeLock(){
+  try{await wakeLockSentinel?.release?.();}catch{}
+  wakeLockSentinel=null;
+}
+function resetPlaylistCache(){
+  state.playlistCache.clear();
+  state.playlistCacheLoaded=false;
+}
+
 function marketContext(){
   const value=els.market?.value||'premium';
   if(value==='us') return {label:'United States audience',countries:['United States'],short:'US'};
@@ -272,7 +308,7 @@ function localPlan(key){
 
 async function geminiJson(prompt,key,model){
   const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
-  const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.7,responseMimeType:'application/json'}})});
+  const response=await fetchWithTimeout(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.7,responseMimeType:'application/json'}})});
   const data=await response.json().catch(()=>({}));
   if(!response.ok) throw new Error(data?.error?.message||`Gemini request failed (${response.status}).`);
   const raw=data?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('')||'';
@@ -383,7 +419,7 @@ async function makeScenePng(text,index,total,plan){
   const pad=(vertical?52:72)*scale;ctx.fillStyle='rgba(255,255,255,.11)';ctx.fillRect(pad,pad,w-pad*2,7*scale);ctx.font=`800 ${(vertical?23:22)*scale}px Arial`;ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillText(plan.nicheLabel.toUpperCase(),pad,pad+46*scale);
   const headline=index===0?plan.hook:text;ctx.font=`900 ${(vertical?52:56)*scale}px Arial`;ctx.fillStyle='#fff';ctx.strokeStyle='rgba(0,0,0,.85)';ctx.lineWidth=8*scale;ctx.lineJoin='round';const lines=wrapCanvasText(ctx,headline,w-pad*2,vertical?7:5);let y=(vertical?310:220)*scale;const lh=(vertical?64:68)*scale;for(const line of lines){ctx.strokeText(line,pad,y,w-pad*2);ctx.fillText(line,pad,y,w-pad*2);y+=lh;}
   ctx.font=`700 ${(vertical?21:19)*scale}px Arial`;ctx.fillStyle='rgba(255,255,255,.72)';ctx.fillText(`ORIGINAL EXPLAINER • ${index+1}/${total}`,pad,h-pad-24*scale);
-  return await new Promise(resolve=>c.toBlob(resolve,'image/png'));
+  return await new Promise(resolve=>c.toBlob(resolve,mobileSafeRender()?'image/jpeg':'image/png',mobileSafeRender()?.88:undefined));
 }
 
 function b64Bytes(s){const bin=atob(s),out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out;}
@@ -392,7 +428,7 @@ function pcmWav(pcm,sampleRate=24000){
 }
 async function geminiTts(text){
   if(!state.settings.geminiKey)return null; const model=state.settings.geminiTtsModel||'gemini-3.1-flash-tts-preview'; const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(state.settings.geminiKey)}`;
-  const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text}]}],generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:els.voice.value||'Kore'}}}}})});
+  const response=await fetchWithTimeout(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text}]}],generationConfig:{responseModalities:['AUDIO'],speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:els.voice.value||'Kore'}}}}})},90000);
   const data=await response.json().catch(()=>({})); if(!response.ok)throw new Error(data?.error?.message||`Gemini TTS failed (${response.status}).`); const part=data?.candidates?.[0]?.content?.parts?.find(p=>p?.inlineData?.data);if(!part)throw new Error('Gemini TTS returned no audio.');return pcmWav(b64Bytes(part.inlineData.data),24000);
 }
 function localVoiceName(){
@@ -426,8 +462,36 @@ function floatSamplesToWav(samples,sampleRate=24000){
   for(let i=0;i<samples.length;i++,o+=2){const s=Math.max(-1,Math.min(1,Number(samples[i])||0));v.setInt16(o,s<0?s*0x8000:s*0x7fff,true);}
   return new Blob([u],{type:'audio/wav'});
 }
+async function mobileWorkerTts(text){
+  if(!window.Worker)throw new Error('This browser does not support the background voice worker.');
+  const workerUrl=new URL('./tts-worker.js',import.meta.url);
+  return await new Promise((resolve,reject)=>{
+    const worker=new Worker(workerUrl,{type:'module'});
+    let settled=false;
+    const finish=(fn,value)=>{if(settled)return;settled=true;clearTimeout(timer);try{worker.terminate();}catch{}fn(value);};
+    const timer=setTimeout(()=>finish(reject,new Error('Free local narration took too long and was stopped to protect the browser from freezing.')),TTS_WORKER_TIMEOUT_MS);
+    worker.onerror=(e)=>finish(reject,new Error(e?.message||'The background narration worker failed.'));
+    worker.onmessage=(e)=>{
+      const m=e.data||{};
+      if(m.type==='load'){setStatus(`Loading free local AI voice in background… ${Math.max(0,Math.min(100,Math.round(Number(m.progress)||0)))}%`);return;}
+      if(m.type==='chunk'){setStatus(`Generating narration in background… ${m.index}/${m.total}`);return;}
+      if(m.type==='error'){finish(reject,new Error(m.message||'Background narration failed.'));return;}
+      if(m.type==='done'){
+        const buf=m.buffer;
+        if(!(buf instanceof ArrayBuffer)||buf.byteLength<45){finish(reject,new Error('Background narration returned invalid audio.'));return;}
+        finish(resolve,new Blob([buf],{type:'audio/wav'}));
+      }
+    };
+    worker.postMessage({type:'generate',text:clean(text),voice:localVoiceName(),maxChars:220});
+  });
+}
+
 async function localKokoroTts(text){
-  setStatus('Loading the free local AI voice… First use can take a while on a phone.');
+  if(mobileSafeRender()){
+    setStatus('Starting the free local AI voice in a background worker…');
+    return mobileWorkerTts(text);
+  }
+  setStatus('Loading the free local AI voice…');
   if(!state.kokoro){
     const mod=await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm');
     state.kokoro=await mod.KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',{
@@ -441,7 +505,7 @@ async function localKokoroTts(text){
       }
     });
   }
-  const pieces=splitForLocalTts(text);
+  const pieces=splitForLocalTts(text,260);
   const chunks=[]; let sampleRate=24000; let total=0;
   for(let i=0;i<pieces.length;i++){
     setStatus(`Generating free local narration… ${i+1}/${pieces.length}`);
@@ -460,7 +524,24 @@ async function mediaDuration(blob,kind='audio'){
   return await new Promise(resolve=>{const el=document.createElement(kind);const url=URL.createObjectURL(blob);el.preload='metadata';el.onloadedmetadata=()=>{const d=Number(el.duration||0);URL.revokeObjectURL(url);resolve(Number.isFinite(d)&&d>0?d:0);};el.onerror=()=>{URL.revokeObjectURL(url);resolve(0);};el.src=url;});
 }
 async function ensureFfmpeg(){
-  if(state.ffmpeg?.loaded)return state.ffmpeg; setStatus('Loading the free local video renderer…'); const ff=new FFmpeg(); const base='https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm'; const classWorkerURL=new URL('./ffmpeg-worker.js',window.location.href).href; await ff.load({coreURL:await toBlobURL(`${base}/ffmpeg-core.js`,'text/javascript'),wasmURL:await toBlobURL(`${base}/ffmpeg-core.wasm`,'application/wasm'),classWorkerURL}); state.ffmpeg=ff;return ff;
+  if(state.ffmpeg?.loaded)return state.ffmpeg;
+  setStatus('Loading the free local video renderer…');
+  const ff=new FFmpeg();
+  const base='https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm';
+  const classWorkerURL=new URL('./ffmpeg-worker.js',window.location.href).href;
+  try{
+    const [coreURL,wasmURL]=await Promise.all([
+      toBlobURL(`${base}/ffmpeg-core.js`,'text/javascript'),
+      toBlobURL(`${base}/ffmpeg-core.wasm`,'application/wasm')
+    ]);
+    await withTimeout(ff.load({coreURL,wasmURL,classWorkerURL}),FFMPEG_LOAD_TIMEOUT_MS,'Video renderer loading');
+    state.ffmpeg=ff;
+    return ff;
+  }catch(err){
+    try{ff.terminate?.();}catch{}
+    state.ffmpeg=null;
+    throw err;
+  }
 }
 function srtTime(seconds){const ms=Math.max(0,Math.round(seconds*1000)),h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000),x=ms%1000;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(x).padStart(3,'0')}`;}
 function makeSrt(lines,totalSeconds){const chunk=totalSeconds/Math.max(1,lines.length);return lines.map((t,i)=>`${i+1}\n${srtTime(i*chunk)} --> ${srtTime(Math.min(totalSeconds,(i+1)*chunk))}\n${clean(t)}\n`).join('\n');}
@@ -472,6 +553,7 @@ async function renderVideo(){
   pullEditsIntoPlan();
   if(!state.plan)throw new Error('Generate a content plan first.');
   const plan=state.plan,scenes=sceneTexts(plan),mobile=mobileSafeRender(),finalSize=finalVideoSize(plan);
+  await keepScreenAwake();
   setAgent('production','Preparing narration','working');setProgress(58);
 
   // IMPORTANT: make narration before loading FFmpeg. Loading the FFmpeg WASM runtime
@@ -487,33 +569,25 @@ async function renderVideo(){
   }
   if(!(audioSeconds>1))throw new Error('Narration was generated but its duration could not be verified, so the silent export was blocked.');
 
-  // On phones, release the voice model before loading FFmpeg. It will reload only when
-  // another video needs local narration, trading a little startup time for much lower RAM use.
-  if(mobile&&usedLocalVoice&&state.kokoro){
-    try{await state.kokoro.dispose?.();}catch{}
-    state.kokoro=null;
-    await sleep(120);
-  }
-
   setAgent('production',mobile?'Mobile-safe 1080p render':'1080p render','working');
   setStatus(mobile?'Preparing mobile-safe Full HD render…':'Loading the Full HD video renderer…');
   const ff=await ensureFfmpeg();
-  const total=audioSeconds,per=total/scenes.length;let firstScene=null;
+  const total=audioSeconds,per=total/scenes.length;let firstScene=null;const sceneExt=mobile?'jpg':'png';
 
   try{
     for(let i=0;i<scenes.length;i++){
       setStatus(`Preparing scene ${i+1}/${scenes.length}${mobile?' · mobile-safe memory mode':''}…`);
       const png=await makeScenePng(scenes[i],i,scenes.length,plan);
       if(i===0)firstScene=png;
-      await ff.writeFile(`scene_${i}.png`,await fetchFile(png));
+      await ff.writeFile(`scene_${i}.${sceneExt}`,await fetchFile(png));
       setProgress(62+Math.round((i/scenes.length)*15));
       // Give the browser a chance to paint/respond between large canvas operations.
       if(mobile)await sleep(35);
     }
 
     const list=[];
-    for(let i=0;i<scenes.length;i++){list.push(`file 'scene_${i}.png'`);list.push(`duration ${per.toFixed(3)}`);}
-    list.push(`file 'scene_${scenes.length-1}.png'`);
+    for(let i=0;i<scenes.length;i++){list.push(`file 'scene_${i}.${sceneExt}'`);list.push(`duration ${per.toFixed(3)}`);}
+    list.push(`file 'scene_${scenes.length-1}.${sceneExt}'`);
     await ff.writeFile('scenes.txt',new TextEncoder().encode(list.join('\n')));
     for(const n of ['final.mp4','narration.wav']){try{await ff.deleteFile(n);}catch{}}
 
@@ -538,7 +612,8 @@ async function renderVideo(){
 
     setStatus(mobile?'Encoding Full HD 1080p in mobile-safe mode…':'Encoding the Full HD 1080p MP4…');
     await sleep(mobile?80:0);
-    await ff.exec(args);
+    const exitCode=await ff.exec(args,mobile?FFMPEG_EXEC_TIMEOUT_MS:FFMPEG_EXEC_TIMEOUT_MS+60000);
+    if(Number(exitCode)!==0)throw new Error(`Video encoder stopped with code ${exitCode}.`);
     const data=await ff.readFile('final.mp4');
     state.videoBlob=new Blob([data.buffer],{type:'video/mp4'});
     state.videoFile=new File([state.videoBlob],`${slug(plan.chosenTitle)}.mp4`,{type:'video/mp4'});
@@ -553,9 +628,10 @@ async function renderVideo(){
     return state.videoFile;
   } finally {
     // Free the in-browser FFmpeg filesystem and WASM heap aggressively on phones.
-    for(let i=0;i<scenes.length;i++){try{await ff.deleteFile(`scene_${i}.png`);}catch{}}
+    for(let i=0;i<scenes.length;i++){try{await ff.deleteFile(`scene_${i}.${sceneExt}`);}catch{}}
     for(const n of ['scenes.txt','narration.wav','final.mp4']){try{await ff.deleteFile(n);}catch{}}
     if(mobile){try{ff.terminate?.();}catch{} state.ffmpeg=null;}
+    await releaseWakeLock();
   }
 }
 
@@ -563,11 +639,11 @@ function cleanupUrls(){for(const u of state.renderUrls)URL.revokeObjectURL(u);st
 function showPreview(){cleanupUrls();const v=URL.createObjectURL(state.videoBlob),t=URL.createObjectURL(state.thumbnailBlob);state.renderUrls.push(v,t);els.preview.src=v;els.preview.classList.remove('hidden');els.previewEmpty.classList.add('hidden');els.downloadVideo.href=v;els.downloadVideo.download=state.videoFile.name;els.downloadVideo.classList.remove('hidden');els.downloadThumbnail.href=t;els.downloadThumbnail.download=`${slug(state.plan.chosenTitle)}-thumbnail.jpg`;els.downloadThumbnail.classList.remove('hidden');els.uploadButton.disabled=!isConnected();}
 
 async function createCurrentVideo(){
-  if(!state.plan)await generatePlan();if(!state.plan)return;els.createVideo.disabled=true;try{setStatus('Creating your original video. Keep this tab open…');await renderVideo();setStatus('Video ready. Preview it, then upload — or enable FULL AUTOPILOT for future runs.','good');if(els.fullAuto.checked)await autoPublishCurrent();}catch(err){console.error(err);setStatus(err.message||String(err),'bad');setAgent('production','Needs attention','warn');}finally{els.createVideo.disabled=false;}
+  if(!state.plan)await generatePlan();if(!state.plan)return;els.createVideo.disabled=true;try{setStatus('Creating your original video. Keep this tab open…');await renderVideo();setStatus('Video ready. Preview it, then upload — or enable FULL AUTOPILOT for future runs.','good');if(els.fullAuto.checked)await autoPublishCurrent();}catch(err){console.error(err);setStatus(err.message||String(err),'bad');setAgent('production','Needs attention','warn');}finally{els.createVideo.disabled=false;await releaseWakeLock();}
 }
 
 async function runBatch(){
-  const count=clamp(Number(els.batch.value)||1,1,4);els.runBatch.disabled=true;try{for(let i=0;i<count;i++){setStatus(`Batch ${i+1}/${count}: creating strategy…`);state.plan=null;await generatePlan();setStatus(`Batch ${i+1}/${count}: rendering video…`);await renderVideo();if(els.fullAuto.checked){await autoPublishCurrent();}else if(count>1){setStatus(`Batch paused after video ${i+1}. FULL AUTOPILOT is OFF, so each generated video needs preview before another one replaces it.`,'good');break;}}if(els.fullAuto.checked)setStatus(`Batch complete: ${count} video${count===1?'':'s'} processed.`,'good');}catch(err){console.error(err);setStatus(err.message||String(err),'bad');}finally{els.runBatch.disabled=false;}
+  const count=clamp(Number(els.batch.value)||1,1,4);els.runBatch.disabled=true;try{for(let i=0;i<count;i++){setStatus(`Batch ${i+1}/${count}: creating strategy…`);state.plan=null;await generatePlan();setStatus(`Batch ${i+1}/${count}: rendering video…`);await renderVideo();if(els.fullAuto.checked){await autoPublishCurrent();}else if(count>1){setStatus(`Batch paused after video ${i+1}. FULL AUTOPILOT is OFF, so each generated video needs preview before another one replaces it.`,'good');break;}}if(els.fullAuto.checked)setStatus(`Batch complete: ${count} video${count===1?'':'s'} processed.`,'good');}catch(err){console.error(err);setStatus(err.message||String(err),'bad');}finally{els.runBatch.disabled=false;await releaseWakeLock();}
 }
 
 function saveAi(){state.settings.geminiKey=els.geminiKey.value.trim();state.settings.geminiTextModel=els.geminiTextModel.value.trim()||'gemini-3.7-flash';state.settings.geminiTtsModel=els.geminiTtsModel.value.trim()||'gemini-3.1-flash-tts-preview';saveSettings();loadSettings();}
@@ -575,28 +651,43 @@ function saveYoutube(){const id=els.googleClientId.value.trim();if(id&&!id.endsW
 
 async function waitGoogle(timeout=10000){const start=Date.now();while(!window.google?.accounts?.oauth2){if(Date.now()-start>timeout)throw new Error('Google sign-in library did not load. Check the connection or content blockers, then refresh.');await sleep(150);}}
 async function requestToken(){
-  if(!state.settings.googleClientId)throw new Error('Add your Google OAuth Client ID in Setup first.');await waitGoogle();return await new Promise((resolve,reject)=>{const client=google.accounts.oauth2.initTokenClient({client_id:state.settings.googleClientId,scope:SCOPES,callback:r=>{if(r.error)return reject(new Error(r.error_description||r.error));state.accessToken=r.access_token;state.expiresAt=Date.now()+Math.max(60,Number(r.expires_in||3600)-60)*1000;resolve(r.access_token);},error_callback:e=>reject(new Error(e?.message||e?.type||'Google sign-in failed.'))});client.requestAccessToken({prompt:state.accessToken?'':'consent'});});
+  if(!state.settings.googleClientId)throw new Error('Add your Google OAuth Client ID in Setup first.');
+  await waitGoogle();
+  return await withTimeout(new Promise((resolve,reject)=>{
+    const client=google.accounts.oauth2.initTokenClient({
+      client_id:state.settings.googleClientId,
+      scope:SCOPES,
+      callback:r=>{
+        if(r.error)return reject(new Error(r.error_description||r.error));
+        state.accessToken=r.access_token;
+        state.expiresAt=Date.now()+Math.max(60,Number(r.expires_in||3600)-60)*1000;
+        resolve(r.access_token);
+      },
+      error_callback:e=>reject(new Error(e?.message||e?.type||'Google sign-in failed.'))
+    });
+    client.requestAccessToken({prompt:state.accessToken?'':'consent'});
+  }),60000,'Google sign-in');
 }
 async function token(){if(state.accessToken&&Date.now()<state.expiresAt)return state.accessToken;return requestToken();}
 function isConnected(){return Boolean(state.accessToken&&Date.now()<state.expiresAt);}
 function ytUrl(path,params={}){const u=new URL(`https://www.googleapis.com/youtube/v3/${path}`);for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,String(v));return u.toString();}
-async function apiJson(url,options={}){const h=new Headers(options.headers||{});h.set('Authorization',`Bearer ${await token()}`);const r=await fetch(url,{...options,headers:h});const tx=await r.text();let d={};try{d=tx?JSON.parse(tx):{};}catch{d={raw:tx};}if(!r.ok)throw new Error(d?.error?.message||d?.raw||`${r.status} ${r.statusText}`);return d;}
+async function apiJson(url,options={}){const h=new Headers(options.headers||{});h.set('Authorization',`Bearer ${await token()}`);const r=await fetchWithTimeout(url,{...options,headers:h});const tx=await r.text();let d={};try{d=tx?JSON.parse(tx):{};}catch{d={raw:tx};}if(!r.ok)throw new Error(d?.error?.message||d?.raw||`${r.status} ${r.statusText}`);return d;}
 
 function setConnectedUI(connected,title=''){
   els.connect.classList.toggle('hidden',connected);els.disconnect.classList.toggle('hidden',!connected);els.refreshAnalytics.disabled=!connected;els.uploadButton.disabled=!(connected&&state.videoBlob);
   if(connected){els.youtubeBanner.textContent=`✓ YouTube connected${title?` — ${title}`:''}`;els.youtubeBanner.style.background='#0e2419';els.youtubeBanner.style.color='#9aeabc';els.youtubeStatus.className='notice good';els.youtubeStatus.textContent=`Connected${title?` to ${title}`:''}.`;}else{els.youtubeBanner.textContent='● YouTube not connected';els.youtubeBanner.style.background='#141922';els.youtubeBanner.style.color='#c4cada';els.youtubeStatus.className='notice subtle';els.youtubeStatus.textContent='YouTube is not connected yet.';}updatePublishGuard();
 }
 async function connectYoutube(){
-  els.connect.disabled=true;els.connect.textContent='Connecting…';try{await requestToken();await refreshChannel();setConnectedUI(true,state.channel?.snippet?.title||'your channel');await refreshAnalytics();}catch(err){console.error(err);setConnectedUI(false);els.youtubeStatus.className='notice bad';els.youtubeStatus.textContent=err.message||String(err);}finally{els.connect.disabled=false;els.connect.textContent='Connect YouTube';}
+  els.connect.disabled=true;els.connect.textContent='Connecting…';try{await requestToken();resetPlaylistCache();await refreshChannel();setConnectedUI(true,state.channel?.snippet?.title||'your channel');await refreshAnalytics();}catch(err){console.error(err);setConnectedUI(false);els.youtubeStatus.className='notice bad';els.youtubeStatus.textContent=err.message||String(err);}finally{els.connect.disabled=false;els.connect.textContent='Connect YouTube';}
 }
-function disconnectYoutube(){const old=state.accessToken;state.accessToken='';state.expiresAt=0;state.channel=null;state.recentVideos=[];state.analytics=null;setConnectedUI(false);if(old&&window.google?.accounts?.oauth2?.revoke){try{google.accounts.oauth2.revoke(old,()=>{});}catch{}}}
+function disconnectYoutube(){const old=state.accessToken;state.accessToken='';state.expiresAt=0;state.channel=null;state.recentVideos=[];state.analytics=null;resetPlaylistCache();setConnectedUI(false);if(old&&window.google?.accounts?.oauth2?.revoke){try{google.accounts.oauth2.revoke(old,()=>{});}catch{}}}
 async function refreshChannel(){const data=await apiJson(ytUrl('channels',{part:'snippet,contentDetails,statistics',mine:'true'}));state.channel=data.items?.[0]||null;if(!state.channel)throw new Error('No YouTube channel was returned for this Google account.');return state.channel;}
 
 async function recentUploads(limit=12){
   if(!state.channel)await refreshChannel();const playlist=state.channel?.contentDetails?.relatedPlaylists?.uploads;if(!playlist)return[];const p=await apiJson(ytUrl('playlistItems',{part:'snippet,contentDetails',playlistId:playlist,maxResults:limit}));const ids=(p.items||[]).map(x=>x.contentDetails?.videoId).filter(Boolean);if(!ids.length)return[];const d=await apiJson(ytUrl('videos',{part:'snippet,statistics,contentDetails',id:ids.join(',')}));state.recentVideos=d.items||[];return state.recentVideos;
 }
 async function analytics28(){
-  const end=new Date();const start=new Date(Date.now()-27*86400000);const u=new URL('https://youtubeanalytics.googleapis.com/v2/reports');u.searchParams.set('ids','channel==MINE');u.searchParams.set('startDate',dateYmd(start));u.searchParams.set('endDate',dateYmd(end));u.searchParams.set('metrics','views,estimatedMinutesWatched,subscribersGained,subscribersLost');const r=await fetch(u,{headers:{Authorization:`Bearer ${await token()}`}});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data?.error?.message||'YouTube Analytics request failed.');const row=data.rows?.[0]||[0,0,0,0];state.analytics={views:Number(row[0]||0),minutes:Number(row[1]||0),gained:Number(row[2]||0),lost:Number(row[3]||0)};return state.analytics;
+  const end=new Date();const start=new Date(Date.now()-27*86400000);const u=new URL('https://youtubeanalytics.googleapis.com/v2/reports');u.searchParams.set('ids','channel==MINE');u.searchParams.set('startDate',dateYmd(start));u.searchParams.set('endDate',dateYmd(end));u.searchParams.set('metrics','views,estimatedMinutesWatched,subscribersGained,subscribersLost');const r=await fetchWithTimeout(u,{headers:{Authorization:`Bearer ${await token()}`}});const data=await r.json().catch(()=>({}));if(!r.ok)throw new Error(data?.error?.message||'YouTube Analytics request failed.');const row=data.rows?.[0]||[0,0,0,0];state.analytics={views:Number(row[0]||0),minutes:Number(row[1]||0),gained:Number(row[2]||0),lost:Number(row[3]||0)};return state.analytics;
 }
 async function refreshAnalytics(){
   els.refreshAnalytics.disabled=true;setAgent('analytics','Loading real data','working');try{if(!state.channel)await refreshChannel();const [videos,analytics]=await Promise.all([recentUploads(),analytics28().catch(err=>{console.warn(err);return null;})]);els.metricChannel.textContent=state.channel.snippet?.title||'—';if(analytics){els.metricViews.textContent=formatNumber(analytics.views);els.metricWatch.textContent=formatNumber((analytics.minutes/60).toFixed(1));els.metricSubs.textContent=formatNumber(analytics.gained-analytics.lost);}renderRecent(videos);renderIdeas();setAgent('analytics','Real data loaded','good');}catch(err){console.error(err);els.recentVideos.className='list-body';els.recentVideos.innerHTML=`<div class="notice bad">${esc(err.message||String(err))}</div>`;setAgent('analytics','Needs attention','warn');}finally{els.refreshAnalytics.disabled=!isConnected();}
@@ -611,13 +702,38 @@ function renderIdeas(){
 }
 
 function multipart(metadata,media,mediaType,boundary){return new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,JSON.stringify(metadata),`\r\n--${boundary}\r\nContent-Type: ${mediaType}\r\n\r\n`,media,`\r\n--${boundary}--\r\n`],{type:`multipart/related; boundary=${boundary}`});}
-function xhrUpload(url,body,auth,onProgress){return new Promise((resolve,reject)=>{const x=new XMLHttpRequest();x.open('POST',url,true);x.setRequestHeader('Authorization',`Bearer ${auth}`);x.setRequestHeader('Content-Type',body.type);x.upload.onprogress=e=>{if(e.lengthComputable)onProgress?.(e.loaded/e.total);};x.onload=()=>{let d={};try{d=JSON.parse(x.responseText||'{}');}catch{d={raw:x.responseText};}if(x.status>=200&&x.status<300)resolve(d);else reject(new Error(d?.error?.message||d?.raw||`${x.status} ${x.statusText}`));};x.onerror=()=>reject(new Error('Network error during YouTube upload.'));x.send(body);});}
-async function uploadThumbnail(videoId){if(!state.thumbnailBlob)return;const u=new URL('https://www.googleapis.com/upload/youtube/v3/thumbnails/set');u.searchParams.set('videoId',videoId);const r=await fetch(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':'image/jpeg'},body:state.thumbnailBlob});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Thumbnail upload failed.');}
-async function uploadCaption(videoId){if(!state.srt)return;const meta={snippet:{videoId,language:'en',name:'ClipFree AI captions',isDraft:false}};const b=`cap_${Date.now()}`;const body=multipart(meta,new Blob([state.srt],{type:'application/x-subrip'}),'application/x-subrip',b);const u=new URL('https://www.googleapis.com/upload/youtube/v3/captions');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet');const r=await fetch(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':body.type},body});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Caption upload failed.');}
+function xhrUpload(url,body,auth,onProgress){
+  return new Promise((resolve,reject)=>{
+    const x=new XMLHttpRequest();
+    x.open('POST',url,true);
+    x.timeout=15*60*1000;
+    x.setRequestHeader('Authorization',`Bearer ${auth}`);
+    x.setRequestHeader('Content-Type',body.type);
+    x.upload.onprogress=e=>{if(e.lengthComputable)onProgress?.(e.loaded/e.total);};
+    x.onload=()=>{
+      let d={};try{d=JSON.parse(x.responseText||'{}');}catch{d={raw:x.responseText};}
+      if(x.status>=200&&x.status<300)resolve(d);else reject(new Error(d?.error?.message||d?.raw||`${x.status} ${x.statusText}`));
+    };
+    x.onerror=()=>reject(new Error('Network error during YouTube upload.'));
+    x.ontimeout=()=>reject(new Error('YouTube upload timed out. Your generated video is still in the preview, so you can retry.'));
+    x.onabort=()=>reject(new Error('YouTube upload was stopped.'));
+    x.send(body);
+  });
+}
+async function uploadThumbnail(videoId){if(!state.thumbnailBlob)return;const u=new URL('https://www.googleapis.com/upload/youtube/v3/thumbnails/set');u.searchParams.set('videoId',videoId);const r=await fetchWithTimeout(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':'image/jpeg'},body:state.thumbnailBlob},90000);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Thumbnail upload failed.');}
+async function uploadCaption(videoId){if(!state.srt)return;const meta={snippet:{videoId,language:'en',name:'ClipFree AI captions',isDraft:false}};const b=`cap_${Date.now()}`;const body=multipart(meta,new Blob([state.srt],{type:'application/x-subrip'}),'application/x-subrip',b);const u=new URL('https://www.googleapis.com/upload/youtube/v3/captions');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet');const r=await fetchWithTimeout(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':body.type},body},90000);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Caption upload failed.');}
 async function loadPlaylistCache(){
   if(state.playlistCacheLoaded)return;
-  const p=await apiJson(ytUrl('playlists',{part:'snippet,status',mine:'true',maxResults:50}));
-  for(const item of p.items||[]){const key=clean(item.snippet?.title).toLowerCase();if(key&&item.id)state.playlistCache.set(key,item.id);}
+  state.playlistCache.clear();
+  let pageToken='';
+  do{
+    const p=await apiJson(ytUrl('playlists',{part:'snippet,status',mine:'true',maxResults:50,pageToken}));
+    for(const item of p.items||[]){
+      const key=clean(item.snippet?.title).toLowerCase();
+      if(key&&item.id)state.playlistCache.set(key,item.id);
+    }
+    pageToken=p.nextPageToken||'';
+  }while(pageToken);
   state.playlistCacheLoaded=true;
 }
 async function ensurePlaylist(name,description='Educational explainers created and published with ClipFree AI.'){
@@ -641,7 +757,10 @@ async function ensureAllAutomaticPlaylists(){
 }
 async function addPlaylist(videoId,playlistId){if(!playlistId)return;await apiJson(ytUrl('playlistItems',{part:'snippet'}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snippet:{playlistId,resourceId:{kind:'youtube#video',videoId}}})});}
 async function uploadYoutube(){
-  pullEditsIntoPlan();if(!state.videoBlob)throw new Error('Generate a video first.');if(!state.plan)throw new Error('No content package is ready.');if(!els.rights.checked)throw new Error('Confirm the factual / publishing review before uploading.');if(!isConnected())await requestToken();const title=clean(state.plan.chosenTitle);if(!title)throw new Error('A YouTube title is required.');els.uploadButton.disabled=true;els.uploadProgress.style.width='2%';setAgent('publishing','Uploading','working');
+  if(navigator.onLine===false)throw new Error('Your device is offline. Reconnect to the internet before uploading.');
+  pullEditsIntoPlan();if(!state.videoBlob)throw new Error('Generate a video first.');if(!state.plan)throw new Error('No content package is ready.');if(!els.rights.checked)throw new Error('Confirm the factual / publishing review before uploading.');if(!isConnected())await requestToken();const title=clean(state.plan.chosenTitle);if(!title)throw new Error('A YouTube title is required.');
+  await keepScreenAwake();
+  els.uploadButton.disabled=true;els.uploadProgress.style.width='2%';setAgent('publishing','Uploading','working');
   try{
     const status={privacyStatus:els.privacy.value,selfDeclaredMadeForKids:els.madeForKids.value==='true'};const publishAt=els.schedule.value?new Date(els.schedule.value):null;if(publishAt&&Number.isFinite(publishAt.getTime())&&publishAt>Date.now()){status.privacyStatus='private';status.publishAt=publishAt.toISOString();}
     const metadata={snippet:{title:title.slice(0,100),description:state.plan.description.slice(0,5000),categoryId:state.plan.categoryId||'27',defaultLanguage:'en',tags:state.plan.tags.slice(0,15)},status};const boundary=`clipfree_${Date.now()}`;const body=multipart(metadata,state.videoBlob,'video/mp4',boundary);const u=new URL('https://www.googleapis.com/upload/youtube/v3/videos');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet,status');u.searchParams.set('notifySubscribers','false');
@@ -656,10 +775,28 @@ async function uploadYoutube(){
       if(els.uploadCaptions.checked&&state.srt)jobs.push(uploadCaption(result.id));
       const playlistSpecs=els.autoPlaylist?.checked?autoPlaylistSpecs(state.plan):[];const manual=clean(els.playlistName?.value||'');if(manual)playlistSpecs.push({title:manual,description:'High Value Explained videos.'});const seen=new Set();
       for(const spec of playlistSpecs){if(!spec?.title||seen.has(spec.title.toLowerCase()))continue;seen.add(spec.title.toLowerCase());jobs.push((async()=>{const pid=await ensurePlaylist(spec.title,spec.description);if(pid)await addPlaylist(result.id,pid);})());}
-      if(jobs.length){els.uploadResult.textContent='Main video uploaded — finishing thumbnail, captions and playlists in parallel…';await Promise.allSettled(jobs);}
+      let extraFailures=0;
+      if(jobs.length){
+        els.uploadResult.textContent='Main video uploaded — finishing thumbnail, captions and playlists in parallel…';
+        const extras=await Promise.allSettled(jobs);
+        extraFailures=extras.filter(x=>x.status==='rejected').length;
+        if(extraFailures)console.warn('Some post-upload tasks failed',extras.filter(x=>x.status==='rejected'));
+      }
+      result.extraFailures=extraFailures;
     }
-    els.uploadProgress.style.width='100%';els.uploadResult.className='notice good';els.uploadResult.innerHTML=`Upload complete in about ${uploadSeconds}s${result.id?`. <a href="https://www.youtube.com/watch?v=${encodeURIComponent(result.id)}" target="_blank" rel="noopener">Open on YouTube</a>`:''}.`;setAgent('publishing','Upload complete','good');setTimeout(()=>refreshAnalytics().catch(()=>{}),1500);return result;
-  } catch(err){els.uploadProgress.style.width='0%';els.uploadResult.className='notice bad';els.uploadResult.textContent=err.message||String(err);setAgent('publishing','Needs attention','warn');throw err;}finally{els.uploadButton.disabled=!(isConnected()&&state.videoBlob);}
+    els.uploadProgress.style.width='100%';
+    const extraFailures=Number(result.extraFailures||0);
+    els.uploadResult.className=extraFailures?'notice subtle':'notice good';
+    els.uploadResult.innerHTML=`Video upload complete in about ${uploadSeconds}s${extraFailures?` · ${extraFailures} extra task${extraFailures===1?'':'s'} need retrying`:''}${result.id?`. <a href="https://www.youtube.com/watch?v=${encodeURIComponent(result.id)}" target="_blank" rel="noopener">Open on YouTube</a>`:''}.`;
+    setAgent('publishing',extraFailures?'Video uploaded · extras need attention':'Upload complete',extraFailures?'warn':'good');
+    setTimeout(()=>refreshAnalytics().catch(()=>{}),1500);
+    return result;
+  } catch(err){
+    els.uploadProgress.style.width='0%';els.uploadResult.className='notice bad';els.uploadResult.textContent=err.message||String(err);setAgent('publishing','Needs attention','warn');throw err;
+  }finally{
+    els.uploadButton.disabled=!(isConnected()&&state.videoBlob);
+    await releaseWakeLock();
+  }
 }
 async function autoPublishCurrent(){if(!els.rights.checked){setStatus('Video created, but FULL AUTOPILOT did not upload because the publishing confirmation is not checked.','good');return;}if(!isConnected()){setStatus('Video created. Connect YouTube before FULL AUTOPILOT can publish.','good');return;}await uploadYoutube();}
 
@@ -675,6 +812,10 @@ els.createPlaylists?.addEventListener('click',async()=>{els.createPlaylists.disa
 [els.topic,els.title,els.description,els.tags,els.hashtags,els.thumbText,els.script].forEach(el=>el.addEventListener('input',renderScore));els.rights.addEventListener('change',updatePublishGuard);
 [els.market,els.revenueGoal].filter(Boolean).forEach(el=>el.addEventListener('change',()=>{state.settings.marketPreset=els.market?.value||'premium';state.settings.revenueGoal=revenueGoalValue();saveSettings();renderGrowthTargets();renderIdeas();}));
 els.fastUpload?.addEventListener('change',()=>{state.settings.fastUpload=els.fastUpload.checked;saveSettings();});
-window.addEventListener('beforeunload',cleanupUrls);
+window.addEventListener('beforeunload',()=>{
+  cleanupUrls();
+  try{state.ffmpeg?.terminate?.();}catch{}
+  try{wakeLockSentinel?.release?.();}catch{}
+});
 
 loadSettings();resetAgents();setConnectedUI(false);renderGrowthTargets();renderIdeas();updatePublishGuard();
