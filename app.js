@@ -4,6 +4,7 @@ import { fetchFile, toBlobURL } from 'https://unpkg.com/@ffmpeg/util@0.12.1/dist
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = 'clipfree_high_value_settings_v1';
 const USED_TOPICS_KEY = 'clipfree_high_value_topics_v1';
+const BATCH30_STATE_KEY = 'clipfree_high_value_batch30_v1';
 const NETWORK_TIMEOUT_MS = 45000;
 const FFMPEG_LOAD_TIMEOUT_MS = 180000;
 const FFMPEG_EXEC_TIMEOUT_MS = 600000;
@@ -130,6 +131,44 @@ const FORMAT_PLAYLISTS = {
   long: { title:'High Value Deep Dives', description:'Long-form educational explainers from High Value Explained.' }
 };
 
+const HIGH_VALUE_30 = [
+  {niche:'finance',keyword:'how to save money',title:'How to Save Money: 5 Rules That Actually Help',thumb:'SAVE MORE MONEY',hook:'Saving money gets easier when you stop treating every dollar the same.',explain:'Start by separating fixed bills, flexible spending, short-term savings and long-term goals. Automate the savings piece first so it happens before optional spending.',example:'For example, moving a small amount on payday is usually easier than hoping money is left at the end of the month.',takeaway:'The useful habit is consistency, not chasing a perfect percentage.'},
+  {niche:'finance',keyword:'personal finance',title:'Personal Finance Basics in 60 Seconds',thumb:'MONEY BASICS',hook:'Personal finance is really four jobs, not one.',explain:'You earn money, manage spending, protect yourself from emergencies and build toward future goals. A simple system tracks cash flow, keeps expensive debt under control and leaves room for savings.',example:'If income rises but spending rises just as fast, your position may not improve at all.',takeaway:'Focus on the system behind your money, not just the balance today.'},
+  {niche:'finance',keyword:'money management',title:'Money Management: A Simple System That Works',thumb:'MONEY SYSTEM',hook:'A budget only works if it is simple enough to keep using.',explain:'Give every major dollar category a purpose: essentials, flexible spending, debt, savings and investing. Review the totals regularly instead of tracking every tiny purchase forever.',example:'A quick weekly check can reveal a subscription or spending category that quietly grew.',takeaway:'The goal is control and visibility, not perfection.'},
+  {niche:'finance',keyword:'compound interest',title:'Compound Interest Explained Simply',thumb:'COMPOUND INTEREST',hook:'Compound interest means your growth can start earning growth of its own.',explain:'When interest or investment gains stay in the account, the next period can build on a larger base. Time matters because repeated compounding has more periods to work.',example:'Ten dollars of growth that stays invested can itself contribute to future growth.',takeaway:'Compounding is powerful because of repeated time, not because returns are guaranteed.'},
+  {niche:'finance',keyword:'credit card interest',title:'Credit Card APR: What It Really Means',thumb:'APR EXPLAINED',hook:'APR is the number that tells you how expensive borrowing can become over a year.',explain:'Credit cards usually convert that annual rate into a smaller periodic rate and apply it to eligible balances. Paying only part of a balance can leave the remainder generating interest.',example:'Two cards with the same purchase price can cost very different amounts if their rates and repayment timing differ.',takeaway:'Compare the rate, fees and repayment rules together.'},
+
+  {niche:'insurance',keyword:'life insurance',title:'Term vs Whole Life Insurance Explained',thumb:'TERM VS WHOLE',hook:'Term and whole life insurance solve different problems.',explain:'Term cover is designed for a fixed period, while whole life policies are designed to remain in force if required premiums and conditions are met. Whole life can also include a cash-value feature.',example:'Someone protecting a mortgage for a set number of years may have a different need from someone planning permanent estate coverage.',takeaway:'Compare purpose, duration, cost and policy terms before comparing price alone.'},
+  {niche:'insurance',keyword:'insurance explained',title:'Insurance Deductible vs Premium Explained',thumb:'PREMIUM VS DEDUCTIBLE',hook:'Your premium and deductible are two different parts of insurance cost.',explain:'The premium is what you pay to keep coverage active. The deductible is an amount you may have to pay toward a covered claim before certain benefits apply.',example:'A policy with a lower ongoing premium can sometimes come with a higher deductible.',takeaway:'Compare both numbers because the cheapest premium is not always the cheapest overall option.'},
+  {niche:'insurance',keyword:'car insurance',title:'Car Insurance: Liability vs Full Coverage',thumb:'CAR COVERAGE',hook:'Liability coverage and what people call full coverage are not the same thing.',explain:'Liability generally addresses damage or injury you cause to others, while broader packages may add collision and comprehensive protection for your own vehicle. Exact definitions vary by policy and location.',example:'Damage from a crash and damage from theft may fall under different sections of a policy.',takeaway:'Read the actual policy limits and exclusions instead of relying on the label.'},
+  {niche:'insurance',keyword:'insurance exclusions',title:'Insurance Exclusions: What They Actually Mean',thumb:'POLICY EXCLUSIONS',hook:'An insurance policy can list what it covers and still exclude important situations.',explain:'An exclusion is a circumstance, event or type of loss the policy says is outside coverage. Some exclusions are broad and others have exceptions or optional add-ons.',example:'A policy may cover one type of water damage but exclude another depending on the cause.',takeaway:'Always read exclusions alongside the coverage section.'},
+  {niche:'insurance',keyword:'insurance claim',title:'How an Insurance Claim Works',thumb:'CLAIM PROCESS',hook:'An insurance claim is a request for the insurer to apply your policy to a loss.',explain:'The usual steps are reporting the event, providing evidence, policy review, assessment and a coverage decision. The exact process depends on the insurer and claim type.',example:'Photos, receipts and dates can help document what happened and what was lost.',takeaway:'Keep records and follow the insurer’s official claim instructions.'},
+
+  {niche:'realestate',keyword:'mortgage',title:'Mortgage Interest Explained in 60 Seconds',thumb:'MORTGAGE INTEREST',hook:'Mortgage interest is the price you pay for borrowing money to buy property.',explain:'Each payment can include interest plus repayment of principal, and the balance changes over time. Rate type, loan term and repayment structure all affect the total cost.',example:'A longer loan term can reduce a scheduled payment while increasing the time interest has to accumulate.',takeaway:'Compare the total borrowing cost, not only the monthly payment.'},
+  {niche:'realestate',keyword:'mortgage rates',title:'Fixed vs Variable Mortgage Rates Explained',thumb:'FIXED VS VARIABLE',hook:'Fixed and variable mortgage rates trade certainty for flexibility.',explain:'A fixed rate holds the agreed rate for a set period, while a variable rate can change according to the loan terms and market conditions. Fees and break rules can matter too.',example:'A fixed rate can make budgeting easier, while a variable rate can move up or down.',takeaway:'The better fit depends on your risk tolerance and loan terms, not a universal winner.'},
+  {niche:'realestate',keyword:'mortgage pre approval',title:'Mortgage Pre-Approval: What It Actually Means',thumb:'PRE APPROVAL',hook:'A mortgage pre-approval is not the same thing as final loan approval.',explain:'It is usually an early assessment based on information available at that time. Final approval can still depend on property details, updated finances, verification and lender conditions.',example:'A buyer can be pre-approved and still need the lender to approve the specific property.',takeaway:'Treat pre-approval as a planning tool, not a guarantee.'},
+  {niche:'realestate',keyword:'home equity',title:'Home Equity Explained Simply',thumb:'HOME EQUITY',hook:'Home equity is the part of a property’s value that is not covered by what you still owe.',explain:'A simple estimate subtracts the outstanding secured loan balance from the current property value. Both the loan balance and property value can change.',example:'If a home value rises while the mortgage balance falls, estimated equity can increase.',takeaway:'Equity is an estimate until a real sale or lender valuation confirms the numbers.'},
+  {niche:'realestate',keyword:'housing market',title:'Housing Market Supply and Demand Explained',thumb:'HOUSING MARKET',hook:'Housing prices are influenced by more than just interest rates.',explain:'Supply, buyer demand, income, financing conditions, construction, migration and local inventory can all affect a market. Different cities can move differently at the same time.',example:'A location with very few listings can behave differently from a place with abundant new construction.',takeaway:'Look at local supply and demand instead of assuming one national headline explains everything.'},
+
+  {niche:'b2b-ai',keyword:'ai agents',title:'AI Agents vs Chatbots Explained',thumb:'AGENTS VS CHATBOTS',hook:'A chatbot answers messages, while an AI agent can be designed to take a sequence of actions.',explain:'Agents can combine a model with tools, memory, rules and workflows to complete multi-step tasks. The exact capabilities depend on what tools and permissions the system has.',example:'A support bot may answer a question, while an agent might also look up an order and prepare the next action.',takeaway:'The important difference is workflow and tool use, not just the chat interface.'},
+  {niche:'b2b-ai',keyword:'ai software',title:'What AI Software Actually Does',thumb:'AI SOFTWARE',hook:'AI software is not one technology doing one job.',explain:'Modern systems can classify information, generate content, search data, predict patterns or automate parts of a workflow. Results depend heavily on data, model design and human oversight.',example:'The same model can be useful for drafting text but unsuitable for making an unsupervised high-stakes decision.',takeaway:'Judge AI by the specific task, controls and evidence behind it.'},
+  {niche:'b2b-ai',keyword:'saas',title:'SaaS Explained in 60 Seconds',thumb:'SAAS EXPLAINED',hook:'SaaS simply means software delivered as an ongoing online service.',explain:'Instead of buying one permanent copy, customers usually access the software through a subscription or usage plan. The provider handles hosting, updates and much of the infrastructure.',example:'A web-based accounting tool paid monthly is a common SaaS model.',takeaway:'Compare features, data portability, support and total recurring cost.'},
+  {niche:'b2b-ai',keyword:'api webhook',title:'API vs Webhook Explained for Beginners',thumb:'API VS WEBHOOK',hook:'An API and a webhook can connect apps, but they usually move information in different ways.',explain:'With an API, one system often asks another system for data or an action. A webhook usually sends an automatic message when a specific event happens.',example:'Checking order status is an API-style request; receiving an instant order-created notification is webhook-style.',takeaway:'Think request when needed versus event notification when it happens.'},
+  {niche:'b2b-ai',keyword:'ai automation',title:'How Businesses Use AI Automation',thumb:'AI AUTOMATION',hook:'AI automation works best when it removes repetitive steps without removing accountability.',explain:'Businesses can use AI to summarize information, classify requests, draft responses, extract fields or route work to the right person. Strong workflows keep human review where errors matter.',example:'An AI system might draft a support reply while a staff member approves sensitive cases.',takeaway:'Automate repeatable work first and keep clear checks around risk.'},
+
+  {niche:'business',keyword:'digital marketing',title:'Digital Marketing Explained in 60 Seconds',thumb:'DIGITAL MARKETING',hook:'Digital marketing is how a business earns attention and action through online channels.',explain:'It can include search, social media, email, content, advertising and conversion optimization. The useful question is not which channel is trendy, but which one reaches the right customer efficiently.',example:'A search ad and an educational video can both attract customers, but at different stages of intent.',takeaway:'Measure the path from attention to customer action.'},
+  {niche:'business',keyword:'lead generation',title:'Lead Generation: What It Actually Means',thumb:'LEAD GENERATION',hook:'A lead is not automatically a customer.',explain:'Lead generation is the process of attracting people or businesses that show potential interest and collecting enough information for a next step. Quality matters as much as volume.',example:'One hundred random sign-ups can be less valuable than ten prospects who closely match the offer.',takeaway:'Track qualified opportunities, not just raw lead counts.'},
+  {niche:'business',keyword:'customer acquisition cost',title:'Customer Acquisition Cost Explained',thumb:'CAC EXPLAINED',hook:'Customer acquisition cost tells you roughly what it costs to win a new customer.',explain:'A basic version divides relevant sales and marketing costs by the number of new customers acquired over the same period. The exact definition should stay consistent when you compare periods.',example:'If spending doubles but new customers barely change, acquisition efficiency may have worsened.',takeaway:'Use CAC together with customer value and margin, not by itself.'},
+  {niche:'business',keyword:'revenue vs profit',title:'Revenue vs Profit Explained',thumb:'REVENUE VS PROFIT',hook:'Revenue is money coming in; profit is what remains after the relevant costs are counted.',explain:'A business can grow revenue and still lose money if expenses grow faster. Different profit measures include different categories of cost.',example:'A company can sell more products while higher advertising, payroll or delivery costs reduce its bottom line.',takeaway:'Never use revenue alone as proof that a business is financially healthy.'},
+  {niche:'business',keyword:'marketing analytics',title:'Marketing Analytics: 3 Numbers to Understand',thumb:'3 MARKETING NUMBERS',hook:'Marketing analytics becomes simpler when you separate traffic, conversion and cost.',explain:'Traffic tells you how many people arrive, conversion tells you how many take the desired action, and acquisition cost tells you what you spent to create new customers.',example:'More website visits are not automatically better if conversions fall or costs rise sharply.',takeaway:'Measure the whole funnel instead of celebrating one number.'},
+
+  {niche:'legal',keyword:'copyright trademark',title:'Copyright vs Trademark Explained',thumb:'COPYRIGHT VS TRADEMARK',hook:'Copyright and trademark protect different kinds of things.',explain:'Copyright generally protects original creative expression, while trademark law generally protects signs that identify the source of goods or services. Rights and registration rules vary by jurisdiction.',example:'A song recording and a brand logo can involve different legal protections.',takeaway:'Start by identifying what you are trying to protect and where.'},
+  {niche:'legal',keyword:'contract basics',title:'Contract Basics: Offer, Acceptance and Value',thumb:'CONTRACT BASICS',hook:'A signed page is not the only thing that can matter in a contract.',explain:'Contract rules often examine whether there was an offer, acceptance, an exchange of value and an intention or legal basis for enforcement. Exact requirements vary by jurisdiction and type of agreement.',example:'Clicking accept on clear online terms can create obligations even without a handwritten signature.',takeaway:'Read the actual terms and get local legal advice for important agreements.'},
+  {niche:'legal',keyword:'civil criminal law',title:'Civil vs Criminal Cases Explained',thumb:'CIVIL VS CRIMINAL',hook:'Civil and criminal cases usually involve different goals and different parties.',explain:'Criminal cases are generally brought by the state to address alleged offences, while civil cases usually resolve disputes between people or organizations. Standards of proof and possible outcomes differ.',example:'The same event can sometimes create both criminal questions and a separate civil claim.',takeaway:'Do not assume the rules from one type of case apply to the other.'},
+  {niche:'legal',keyword:'cease and desist',title:'What a Cease and Desist Letter Means',thumb:'CEASE AND DESIST',hook:'A cease and desist letter is usually a demand, not automatically a court order.',explain:'It can allege that conduct should stop and may explain legal claims or requested actions. Its legal significance depends on the facts, jurisdiction and whether later court action follows.',example:'Receiving one does not by itself prove the sender’s claim is correct.',takeaway:'For a serious dispute, preserve the documents and get qualified local legal advice.'},
+  {niche:'legal',keyword:'small claims court',title:'Small Claims Court Explained Simply',thumb:'SMALL CLAIMS COURT',hook:'Small claims court is designed to handle certain lower-value civil disputes through a simpler process.',explain:'Who can file, claim limits, fees, evidence rules and procedures vary by jurisdiction. It is still a real legal process with deadlines and documentation requirements.',example:'A consumer payment dispute may qualify in one location but exceed the limit in another.',takeaway:'Check the official court rules where the dispute would be filed.'}
+];
+
 const state = {
   settings: { geminiKey:'', geminiTextModel:'gemini-3.7-flash', geminiTtsModel:'gemini-3.1-flash-tts-preview', googleClientId:'' },
   plan: null,
@@ -152,14 +191,16 @@ const state = {
   ttsWorker: null,
   ttsWorkerReady: false,
   ttsWorkerReadyPromise: null,
-  ttsWorkerPending: new Map()
+  ttsWorkerPending: new Map(),
+  batch30Running: false,
+  batch30StopRequested: false
 };
 let ttsRequestSeq=0;
 
 const els = {
   niche: $('nicheSelect'), format: $('formatSelect'), market: $('marketPreset'), revenueGoal: $('revenueGoal'), batch: $('batchCount'), voice: $('voiceSelect'),
   freeOnly: $('freeOnly'), fullAuto: $('fullAutopilot'), rights: $('rightsConfirm'),
-  generate: $('generatePlan'), createVideo: $('createVideo'), runBatch: $('runBatch'), status: $('autopilotStatus'), progress: $('autopilotProgress'),
+  generate: $('generatePlan'), createVideo: $('createVideo'), runBatch: $('runBatch'), runThirty: $('runThirtyShorts'), stopThirty: $('stopThirtyShorts'), resetThirty: $('resetThirtyShorts'), batch30Status: $('batch30Status'), batch30Progress: $('batch30Progress'), status: $('autopilotStatus'), progress: $('autopilotProgress'),
   topic: $('topicOutput'), title: $('titleOutput'), description: $('descriptionOutput'), tags: $('tagsOutput'), hashtags: $('hashtagsOutput'), thumbText: $('thumbnailOutput'), script: $('scriptOutput'),
   variants: $('titleVariants'), quality: $('qualityChecks'), score: $('seoScore'), preview: $('videoPreview'), previewEmpty: $('previewEmpty'), downloadVideo: $('downloadVideo'), downloadThumbnail: $('downloadThumbnail'),
   connect: $('connectYoutube'), disconnect: $('disconnectYoutube'), connectTop: $('connectYoutubeTop'), disconnectTop: $('disconnectYoutubeTop'), youtubeStatus: $('youtubeStatus'), youtubeBanner: $('youtubeBanner'),
@@ -376,6 +417,80 @@ function usedTopics(){
 function rememberTopic(topic){
   const set=usedTopics(); set.add(clean(topic).toLowerCase());
   try { localStorage.setItem(USED_TOPICS_KEY,JSON.stringify([...set].slice(-250))); } catch {}
+}
+
+function batch30State(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(BATCH30_STATE_KEY)||'{}');
+    const nextIndex=Math.max(0,Math.min(HIGH_VALUE_30.length,Number(raw.nextIndex)||0));
+    const completed=Array.isArray(raw.completed)?raw.completed.filter(Boolean):[];
+    return {nextIndex,completed,startedAt:raw.startedAt||null,finishedAt:raw.finishedAt||null};
+  }catch{return {nextIndex:0,completed:[],startedAt:null,finishedAt:null};}
+}
+function saveBatch30State(s){try{localStorage.setItem(BATCH30_STATE_KEY,JSON.stringify(s));}catch{}}
+function resetBatch30State(){
+  localStorage.removeItem(BATCH30_STATE_KEY);
+  renderBatch30State();
+}
+function renderBatch30State(){
+  if(!els.batch30Status||!els.batch30Progress||!els.runThirty)return;
+  const s=batch30State();
+  const done=Math.min(HIGH_VALUE_30.length,s.nextIndex);
+  els.batch30Progress.style.width=`${Math.round((done/HIGH_VALUE_30.length)*100)}%`;
+  if(done>=HIGH_VALUE_30.length){
+    els.batch30Status.className='notice good';
+    els.batch30Status.textContent=`30/30 complete. ${s.completed.length} YouTube video IDs saved in this browser.`;
+    els.runThirty.textContent='✓ 30 Shorts Complete';
+    els.runThirty.disabled=true;
+  }else{
+    els.runThirty.disabled=state.batch30Running;
+    els.runThirty.textContent=done>0?`▶ Resume 30 Shorts · ${done}/30 complete`:'🚀 Start 30 SEO Shorts';
+    if(!state.batch30Running){
+      els.batch30Status.className='notice subtle';
+      els.batch30Status.textContent=done>0
+        ? `Saved progress: ${done}/30 complete. Next: ${HIGH_VALUE_30[done].title}`
+        : 'Ready. The queue uses 30 original high-commercial-value educational Shorts and saves progress after every successful YouTube upload.';
+    }
+  }
+}
+function cleanupBetweenBatchVideos(){
+  cleanupUrls();
+  try{if(els.preview){els.preview.pause?.();els.preview.removeAttribute('src');els.preview.load?.();els.preview.classList.add('hidden');}}catch{}
+  els.previewEmpty?.classList.remove('hidden');
+  state.videoBlob=null;state.videoFile=null;state.thumbnailBlob=null;state.srt='';
+  state.plan=null;
+  if(mobileSafeRender()){
+    try{state.ffmpeg?.terminate?.();}catch{}
+    state.ffmpeg=null;
+  }
+}
+function buildSeededShortPlan(seed,index=0){
+  const profile=NICHES[seed.niche];
+  const ctas=['Save this explanation for later.','Share this with someone learning the basics.','Follow for another plain-English breakdown.','Keep this as a quick reference.'];
+  const script=`${seed.hook} ${seed.explain} ${seed.example} ${seed.takeaway} ${ctas[index%ctas.length]} ${profile.disclaimer}`;
+  const hashtags=['#Shorts',`#${profile.short.replace(/[^a-z0-9]/gi,'')}`,'#Explained','#Education'];
+  const tags=[seed.keyword,...profile.keywords,seed.topic||seed.title.toLowerCase(),'high value explained','beginner guide','youtube shorts'];
+  const title=clean(seed.title).slice(0,100);
+  const topic=clean(seed.topic||seed.keyword||seed.title);
+  const titleCandidates=[
+    title,
+    `${clean(seed.keyword).replace(/\b\w/g,m=>m.toUpperCase())} Explained Simply`,
+    `${profile.short}: ${title.replace(/ Explained.*$/i,'').slice(0,52)}`,
+    `Understand ${clean(seed.keyword)} in Under a Minute`,
+    `${clean(seed.keyword).replace(/\b\w/g,m=>m.toUpperCase())} Basics`
+  ].map(x=>clean(x).slice(0,86));
+  const description=`${title}\n\nA clear, beginner-friendly explanation of ${seed.keyword}. Built for viewers who want the concept without unnecessary jargon.\n\n${profile.disclaimer}\n\n${hashtags.join(' ')}`;
+  rememberTopic(topic);
+  return {
+    niche:seed.niche,nicheLabel:profile.label,valueLabel:profile.valueLabel,categoryId:profile.categoryId,format:'short',topic,
+    searchIntent:`Educational search intent: ${seed.keyword}`,audience:marketContext().label,
+    chosenTitle:title,titleCandidates,hook:seed.hook,script,description,
+    tags:[...new Set(tags.map(clean).filter(Boolean))].slice(0,15),
+    hashtags,thumbnailTexts:[seed.thumb,`${profile.short} EXPLAINED`,'KNOW THIS','SIMPLE BREAKDOWN'],
+    verificationQueries:[`Verify current definitions and terminology for: ${seed.keyword}`,'Avoid current rates, prices, laws or product-specific claims unless independently verified.'],
+    riskNotes:['Original educational explanation only.','No guaranteed financial, legal, insurance, mortgage, ranking or income outcome.','No unlicensed third-party music or footage required.'],
+    disclaimer:profile.disclaimer,source:'high-value-30',batch30Index:index
+  };
 }
 function pickNiche(){
   const selected=els.niche.value;
@@ -768,7 +883,108 @@ async function createCurrentVideo(){
 }
 
 async function runBatch(){
-  const count=clamp(Number(els.batch.value)||1,1,4);els.runBatch.disabled=true;try{for(let i=0;i<count;i++){setStatus(`Batch ${i+1}/${count}: creating strategy…`);state.plan=null;await generatePlan();setStatus(`Batch ${i+1}/${count}: rendering video…`);await renderVideo();if(els.fullAuto.checked){await autoPublishCurrent();}else if(count>1){setStatus(`Batch paused after video ${i+1}. FULL AUTOPILOT is OFF, so each generated video needs preview before another one replaces it.`,'good');break;}}if(els.fullAuto.checked)setStatus(`Hands-Free batch complete: ${count} video${count===1?'':'s'} created and sent through the upload workflow.`,'good');}catch(err){console.error(err);setStatus(err.message||String(err),'bad');}finally{els.runBatch.disabled=false;await releaseWakeLock();}
+  const count=clamp(Number(els.batch.value)||1,1,10);els.runBatch.disabled=true;try{for(let i=0;i<count;i++){setStatus(`Batch ${i+1}/${count}: creating strategy…`);state.plan=null;await generatePlan();setStatus(`Batch ${i+1}/${count}: rendering video…`);await renderVideo();if(els.fullAuto.checked){await autoPublishCurrent();}else if(count>1){setStatus(`Batch paused after video ${i+1}. FULL AUTOPILOT is OFF, so each generated video needs preview before another one replaces it.`,'good');break;}}if(els.fullAuto.checked)setStatus(`Hands-Free batch complete: ${count} video${count===1?'':'s'} created and sent through the upload workflow.`,'good');}catch(err){console.error(err);setStatus(err.message||String(err),'bad');}finally{els.runBatch.disabled=false;await releaseWakeLock();}
+}
+
+async function runThirtyShorts(){
+  if(state.batch30Running)return;
+  if(!els.rights.checked){
+    els.batch30Status.className='notice bad';
+    els.batch30Status.textContent='Check the one-time publishing confirmation first. This queue only publishes original/authorized material.';
+    els.rights.scrollIntoView?.({behavior:'smooth',block:'center'});
+    return;
+  }
+  if(navigator.onLine===false){
+    els.batch30Status.className='notice bad';
+    els.batch30Status.textContent='Your device is offline. Reconnect before starting the 30-Short queue.';
+    return;
+  }
+  const saved=batch30State();
+  if(saved.nextIndex>=HIGH_VALUE_30.length){renderBatch30State();return;}
+
+  state.batch30Running=true;state.batch30StopRequested=false;
+  els.runThirty.disabled=true;els.stopThirty.classList.remove('hidden');els.resetThirty.disabled=true;
+  els.format.value='short';els.niche.value='auto';els.fullAuto.checked=true;
+  state.settings.fullAutopilot=true;saveSettings();
+
+  try{
+    els.batch30Status.className='notice subtle';
+    els.batch30Status.textContent='Checking YouTube upload permission…';
+    await ensurePublishToken();
+    resetPlaylistCache();
+    await ensureAllAutomaticPlaylists();
+
+    let progress=batch30State();
+    if(!progress.startedAt)progress.startedAt=new Date().toISOString();
+
+    for(let i=progress.nextIndex;i<HIGH_VALUE_30.length;i++){
+      if(state.batch30StopRequested)break;
+      const seed=HIGH_VALUE_30[i];
+
+      cleanupBetweenBatchVideos();
+      els.batch30Status.className='notice subtle';
+      els.batch30Status.textContent=`${i+1}/30 · Building SEO Short: ${seed.title}`;
+      els.batch30Progress.style.width=`${Math.round((i/30)*100)}%`;
+
+      const plan=buildSeededShortPlan(seed,i);
+      renderPlan(plan);
+      setAgent('strategy','30-Short queue','good');
+      setAgent('research',`SEO seed: ${seed.keyword}`,'good');
+      setAgent('script','Original short script','good');
+      setAgent('seo','Keyword aligned','good');
+      setAgent('thumbnail','Ready','good');
+
+      els.batch30Status.textContent=`${i+1}/30 · Rendering 1080×1920: ${seed.title}`;
+      await renderVideo();
+
+      els.batch30Status.textContent=`${i+1}/30 · Uploading safely with resume + retry: ${seed.title}`;
+      const result=await uploadYoutube();
+      if(!result?.id)throw new Error(`Short ${i+1} did not return a YouTube video ID.`);
+
+      progress=batch30State();
+      progress.nextIndex=i+1;
+      progress.completed=[...(progress.completed||[]),{index:i,videoId:result.id,title:seed.title,uploadedAt:new Date().toISOString()}].slice(-30);
+      if(progress.nextIndex>=HIGH_VALUE_30.length)progress.finishedAt=new Date().toISOString();
+      saveBatch30State(progress);
+
+      els.batch30Progress.style.width=`${Math.round(((i+1)/30)*100)}%`;
+      els.batch30Status.className='notice good';
+      els.batch30Status.textContent=`${i+1}/30 uploaded successfully · ${seed.title}`;
+      cleanupBetweenBatchVideos();
+      await waitMs(1200);
+    }
+
+    const final=batch30State();
+    if(final.nextIndex>=HIGH_VALUE_30.length){
+      els.batch30Status.className='notice good';
+      els.batch30Status.textContent='30/30 Shorts completed and uploaded. Refresh Analytics after YouTube finishes processing them.';
+      setStatus('30-Short SEO queue complete.','good');
+      setTimeout(()=>refreshAnalytics().catch(()=>{}),2500);
+    }else if(state.batch30StopRequested){
+      els.batch30Status.className='notice subtle';
+      els.batch30Status.textContent=`Paused safely at ${final.nextIndex}/30. Tap Resume when you are ready.`;
+    }
+  }catch(err){
+    console.error('30-Short queue stopped safely',err);
+    const s=batch30State();
+    els.batch30Status.className='notice bad';
+    els.batch30Status.textContent=`Paused safely at ${s.nextIndex}/30: ${err.message||err}. Fix the issue/reconnect YouTube, then tap Resume 30 Shorts. Completed uploads will not be intentionally repeated.`;
+    setStatus(`30-Short queue paused at ${s.nextIndex}/30.`,'bad');
+  }finally{
+    state.batch30Running=false;
+    els.stopThirty.classList.add('hidden');
+    els.resetThirty.disabled=false;
+    cleanupBetweenBatchVideos();
+    renderBatch30State();
+    await releaseWakeLock();
+  }
+}
+function requestStopThirtyShorts(){
+  if(!state.batch30Running)return;
+  state.batch30StopRequested=true;
+  els.stopThirty.disabled=true;
+  els.batch30Status.className='notice subtle';
+  els.batch30Status.textContent='Stop requested. ClipFree will finish the current Short safely, save progress, then pause.';
 }
 
 function saveAi(){state.settings.geminiKey=els.geminiKey.value.trim();state.settings.geminiTextModel=els.geminiTextModel.value.trim()||'gemini-3.7-flash';state.settings.geminiTtsModel=els.geminiTtsModel.value.trim()||'gemini-3.1-flash-tts-preview';if(state.settings.geminiKey)destroyTtsWorker();saveSettings();loadSettings();}
@@ -875,23 +1091,129 @@ function renderIdeas(){
 }
 
 function multipart(metadata,media,mediaType,boundary){return new Blob([`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`,JSON.stringify(metadata),`\r\n--${boundary}\r\nContent-Type: ${mediaType}\r\n\r\n`,media,`\r\n--${boundary}--\r\n`],{type:`multipart/related; boundary=${boundary}`});}
-function xhrUpload(url,body,auth,onProgress){
+function waitMs(ms){return new Promise(r=>setTimeout(r,ms));}
+async function retryAsync(fn,label,maxAttempts=3){
+  let last;
+  for(let attempt=1;attempt<=maxAttempts;attempt++){
+    try{return await fn(attempt);}
+    catch(err){
+      last=err;
+      if(attempt>=maxAttempts)break;
+      const delay=Math.min(8000,900*Math.pow(2,attempt-1));
+      setStatus(`${label} retry ${attempt}/${maxAttempts-1} in ${Math.ceil(delay/1000)}s…`,'subtle');
+      await waitMs(delay);
+    }
+  }
+  throw last||new Error(`${label} failed.`);
+}
+async function startResumableUpload(metadata,totalBytes){
+  const u=new URL('https://www.googleapis.com/upload/youtube/v3/videos');
+  u.searchParams.set('uploadType','resumable');
+  u.searchParams.set('part','snippet,status');
+  u.searchParams.set('notifySubscribers','false');
+  const auth=await ensurePublishToken();
+  const r=await fetchWithTimeout(u,{
+    method:'POST',
+    headers:{
+      'Authorization':`Bearer ${auth}`,
+      'Content-Type':'application/json; charset=UTF-8',
+      'X-Upload-Content-Type':'video/mp4',
+      'X-Upload-Content-Length':String(totalBytes)
+    },
+    body:JSON.stringify(metadata)
+  },90000);
+  const text=await r.text().catch(()=> '');
+  if(!r.ok)throw new Error((()=>{try{return JSON.parse(text)?.error?.message}catch{return text}})()||`Could not start YouTube upload (${r.status}).`);
+  const location=r.headers.get('Location');
+  if(!location)throw new Error('YouTube did not return a resumable upload session.');
+  return location;
+}
+function xhrPutChunk(sessionUrl,blob,start,endExclusive,total,auth,onProgress){
   return new Promise((resolve,reject)=>{
     const x=new XMLHttpRequest();
-    x.open('POST',url,true);
-    x.timeout=15*60*1000;
+    x.open('PUT',sessionUrl,true);
+    x.timeout=3*60*1000;
     x.setRequestHeader('Authorization',`Bearer ${auth}`);
-    x.setRequestHeader('Content-Type',body.type);
-    x.upload.onprogress=e=>{if(e.lengthComputable)onProgress?.(e.loaded/e.total);};
+    x.setRequestHeader('Content-Type','video/mp4');
+    x.setRequestHeader('Content-Range',`bytes ${start}-${endExclusive-1}/${total}`);
+    x.upload.onprogress=e=>{if(e.lengthComputable)onProgress?.(start+e.loaded,total);};
     x.onload=()=>{
-      let d={};try{d=JSON.parse(x.responseText||'{}');}catch{d={raw:x.responseText};}
-      if(x.status>=200&&x.status<300)resolve(d);else reject(new Error(d?.error?.message||d?.raw||`${x.status} ${x.statusText}`));
+      const range=x.getResponseHeader('Range')||'';
+      let data={};try{data=JSON.parse(x.responseText||'{}');}catch{data={raw:x.responseText};}
+      resolve({status:x.status,range,data});
     };
-    x.onerror=()=>reject(new Error('Network error during YouTube upload.'));
-    x.ontimeout=()=>reject(new Error('YouTube upload timed out. Your generated video is still in the preview, so you can retry.'));
+    x.onerror=()=>reject(new Error('Network error while sending a YouTube upload chunk.'));
+    x.ontimeout=()=>reject(new Error('A YouTube upload chunk timed out.'));
     x.onabort=()=>reject(new Error('YouTube upload was stopped.'));
-    x.send(body);
+    x.send(blob);
   });
+}
+async function queryResumableOffset(sessionUrl,total){
+  const auth=await ensurePublishToken();
+  try{
+    const r=await fetchWithTimeout(sessionUrl,{
+      method:'PUT',
+      headers:{'Authorization':`Bearer ${auth}`,'Content-Range':`bytes */${total}`,'Content-Length':'0'}
+    },45000);
+    if(r.status===308){
+      const range=r.headers.get('Range')||'';
+      const m=range.match(/(\d+)-(\d+)$/);
+      return m?Number(m[2])+1:0;
+    }
+    if(r.ok){
+      const d=await r.json().catch(()=>({}));
+      return {complete:true,data:d};
+    }
+  }catch{}
+  return null;
+}
+async function uploadVideoResumable(metadata,videoBlob,onProgress){
+  const total=videoBlob.size;
+  const sessionUrl=await retryAsync(()=>startResumableUpload(metadata,total),'Starting YouTube upload',3);
+  const chunkSize=4*1024*1024;
+  let offset=0;
+  let completed=null;
+  while(offset<total){
+    const end=Math.min(total,offset+chunkSize);
+    let success=false;
+    for(let attempt=1;attempt<=4;attempt++){
+      const auth=await ensurePublishToken();
+      try{
+        const result=await xhrPutChunk(sessionUrl,videoBlob.slice(offset,end),offset,end,total,auth,onProgress);
+        if(result.status===308){
+          const m=String(result.range||'').match(/(\d+)-(\d+)$/);
+          offset=m?Number(m[2])+1:end;
+          success=true;
+          break;
+        }
+        if(result.status>=200&&result.status<300){
+          completed=result.data||{};
+          offset=total;
+          success=true;
+          break;
+        }
+        const msg=result.data?.error?.message||result.data?.raw||`YouTube upload returned ${result.status}.`;
+        if([401,408,429,500,502,503,504].includes(result.status)){
+          if(result.status===401){state.expiresAt=0;}
+          const known=await queryResumableOffset(sessionUrl,total);
+          if(known&&known.complete){completed=known.data;offset=total;success=true;break;}
+          if(Number.isFinite(known)&&known>=0){offset=known;}
+          await waitMs(Math.min(8000,1000*Math.pow(2,attempt-1)));
+          continue;
+        }
+        throw new Error(msg);
+      }catch(err){
+        if(attempt>=4)throw err;
+        const known=await queryResumableOffset(sessionUrl,total);
+        if(known&&known.complete){completed=known.data;offset=total;success=true;break;}
+        if(Number.isFinite(known)&&known>=0)offset=known;
+        await waitMs(Math.min(8000,1000*Math.pow(2,attempt-1)));
+      }
+    }
+    if(!success)throw new Error('YouTube upload could not resume after repeated retries.');
+  }
+  if(!completed?.id)throw new Error('YouTube finished receiving the video but returned no video ID.');
+  return completed;
 }
 async function uploadThumbnail(videoId){if(!state.thumbnailBlob)return;const u=new URL('https://www.googleapis.com/upload/youtube/v3/thumbnails/set');u.searchParams.set('videoId',videoId);const r=await fetchWithTimeout(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':'image/jpeg'},body:state.thumbnailBlob},90000);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Thumbnail upload failed.');}
 async function uploadCaption(videoId){if(!state.srt)return;const meta={snippet:{videoId,language:'en',name:'ClipFree AI captions',isDraft:false}};const b=`cap_${Date.now()}`;const body=multipart(meta,new Blob([state.srt],{type:'application/x-subrip'}),'application/x-subrip',b);const u=new URL('https://www.googleapis.com/upload/youtube/v3/captions');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet');const r=await fetchWithTimeout(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':body.type},body},90000);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Caption upload failed.');}
@@ -936,18 +1258,27 @@ async function uploadYoutube(){
   els.uploadButton.disabled=true;els.uploadProgress.style.width='2%';setAgent('publishing','Uploading','working');
   try{
     const status={privacyStatus:youtubeTestModeEnabled()?'private':els.privacy.value,selfDeclaredMadeForKids:els.madeForKids.value==='true'};const publishAt=els.schedule.value?new Date(els.schedule.value):null;if(!youtubeTestModeEnabled()&&publishAt&&Number.isFinite(publishAt.getTime())&&publishAt>Date.now()){status.privacyStatus='private';status.publishAt=publishAt.toISOString();}
-    const metadata={snippet:{title:title.slice(0,100),description:state.plan.description.slice(0,5000),categoryId:state.plan.categoryId||'27',defaultLanguage:'en',tags:state.plan.tags.slice(0,15)},status};const boundary=`clipfree_${Date.now()}`;const body=multipart(metadata,state.videoBlob,'video/mp4',boundary);const u=new URL('https://www.googleapis.com/upload/youtube/v3/videos');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet,status');u.searchParams.set('notifySubscribers','false');
+    const metadata={snippet:{title:title.slice(0,100),description:state.plan.description.slice(0,5000),categoryId:state.plan.categoryId||'27',defaultLanguage:'en',tags:state.plan.tags.slice(0,15)},status};
     const started=performance.now();let lastT=started,lastLoaded=0;
-    els.uploadResult.textContent=`Uploading ${mb(state.videoBlob.size)} MB${turboEnabled()?' · TURBO':''}…`;
-    const result=await xhrUpload(u.toString(),body,await token(),p=>{const now=performance.now();const loaded=p*body.size;const dt=(now-lastT)/1000;if(dt>.65){const rate=(loaded-lastLoaded)/Math.max(.01,dt);const remain=Math.max(0,body.size-loaded);const eta=rate>0?Math.ceil(remain/rate):0;const mbps=(rate*8/1e6).toFixed(1);els.uploadResult.textContent=`Uploading… ${Math.round(p*100)}% · ${mbps} Mbps${eta?` · ~${eta}s left`:''}`;lastT=now;lastLoaded=loaded;}els.uploadProgress.style.width=`${Math.round(2+p*90)}%`;});
+    els.uploadResult.textContent=`Uploading ${mb(state.videoBlob.size)} MB${turboEnabled()?' · TURBO':''} with resumable protection…`;
+    const result=await uploadVideoResumable(metadata,state.videoBlob,(loaded,total)=>{
+      const p=total?loaded/total:0;const now=performance.now();const dt=(now-lastT)/1000;
+      if(dt>.65){
+        const rate=(loaded-lastLoaded)/Math.max(.01,dt);const remain=Math.max(0,total-loaded);
+        const eta=rate>0?Math.ceil(remain/rate):0;const mbps=(rate*8/1e6).toFixed(1);
+        els.uploadResult.textContent=`Uploading… ${Math.round(p*100)}% · ${mbps} Mbps${eta?` · ~${eta}s left`:''}`;
+        lastT=now;lastLoaded=loaded;
+      }
+      els.uploadProgress.style.width=`${Math.round(2+p*90)}%`;
+    });
     const uploadSeconds=((performance.now()-started)/1000).toFixed(1);
     if(result.id){
       // Run thumbnail, captions and playlist work together instead of waiting for each one in sequence.
       const jobs=[];
-      if(els.uploadThumbnail.checked)jobs.push(uploadThumbnail(result.id));
-      if(els.uploadCaptions.checked&&state.srt)jobs.push(uploadCaption(result.id));
+      if(els.uploadThumbnail.checked)jobs.push(retryAsync(()=>uploadThumbnail(result.id),'Thumbnail upload',3));
+      if(els.uploadCaptions.checked&&state.srt)jobs.push(retryAsync(()=>uploadCaption(result.id),'Caption upload',3));
       const playlistSpecs=els.autoPlaylist?.checked?autoPlaylistSpecs(state.plan):[];const manual=clean(els.playlistName?.value||'');if(manual)playlistSpecs.push({title:manual,description:'High Value Explained videos.'});const seen=new Set();
-      for(const spec of playlistSpecs){if(!spec?.title||seen.has(spec.title.toLowerCase()))continue;seen.add(spec.title.toLowerCase());jobs.push((async()=>{const pid=await ensurePlaylist(spec.title,spec.description);if(pid)await addPlaylist(result.id,pid);})());}
+      for(const spec of playlistSpecs){if(!spec?.title||seen.has(spec.title.toLowerCase()))continue;seen.add(spec.title.toLowerCase());jobs.push(retryAsync(async()=>{const pid=await ensurePlaylist(spec.title,spec.description);if(pid)await addPlaylist(result.id,pid);},`Playlist: ${spec.title}`,3));}
       let extraFailures=0;
       if(jobs.length){
         els.uploadResult.textContent='Main video uploaded — finishing thumbnail, captions and playlists in parallel…';
@@ -962,7 +1293,7 @@ async function uploadYoutube(){
     els.uploadResult.className=extraFailures?'notice subtle':'notice good';
     els.uploadResult.innerHTML=`Video upload complete in about ${uploadSeconds}s${extraFailures?` · ${extraFailures} extra task${extraFailures===1?'':'s'} need retrying`:''}${result.id?`. <a href="https://www.youtube.com/watch?v=${encodeURIComponent(result.id)}" target="_blank" rel="noopener">Open on YouTube</a>`:''}.`;
     setAgent('publishing',extraFailures?'Video uploaded · extras need attention':'Upload complete',extraFailures?'warn':'good');
-    setTimeout(()=>refreshAnalytics().catch(()=>{}),1500);
+    if(!state.batch30Running)setTimeout(()=>refreshAnalytics().catch(()=>{}),1500);
     return result;
   } catch(err){
     els.uploadProgress.style.width='0%';els.uploadResult.className='notice bad';els.uploadResult.textContent=err.message||String(err);setAgent('publishing','Needs attention','warn');throw err;
@@ -980,6 +1311,12 @@ function updatePublishGuard(){
 els.generate.addEventListener('click',()=>generatePlan().catch(err=>setStatus(err.message||String(err),'bad')));
 els.createVideo.addEventListener('click',()=>createCurrentVideo());
 els.runBatch.addEventListener('click',()=>runBatch());
+els.runThirty?.addEventListener('click',()=>runThirtyShorts());
+els.stopThirty?.addEventListener('click',requestStopThirtyShorts);
+els.resetThirty?.addEventListener('click',()=>{
+  if(state.batch30Running)return;
+  if(confirm('Reset saved 30-Short progress back to 0/30? This does not delete videos already uploaded to YouTube.'))resetBatch30State();
+});
 els.saveAi.addEventListener('click',saveAi);els.saveYoutube.addEventListener('click',saveYoutube);els.connect.addEventListener('click',connectYoutube);els.connectTop?.addEventListener('click',connectYoutube);els.disconnect.addEventListener('click',disconnectYoutube);els.disconnectTop?.addEventListener('click',disconnectYoutube);els.refreshAnalytics.addEventListener('click',refreshAnalytics);els.uploadButton.addEventListener('click',()=>uploadYoutube().catch(err=>console.error(err)));
 els.createPlaylists?.addEventListener('click',async()=>{els.createPlaylists.disabled=true;try{await ensureAllAutomaticPlaylists();}catch(err){if(els.playlistStatus){els.playlistStatus.className='notice bad';els.playlistStatus.textContent=err.message||String(err);}}finally{els.createPlaylists.disabled=false;}});
 [els.topic,els.title,els.description,els.tags,els.hashtags,els.thumbText,els.script].forEach(el=>el.addEventListener('input',renderScore));els.rights.addEventListener('change',updatePublishGuard);
@@ -1006,4 +1343,4 @@ window.addEventListener('beforeunload',()=>{
   try{wakeLockSentinel?.release?.();}catch{}
 });
 
-loadSettings();resetAgents();setConnectedUI(false);applyYoutubeTestModeUI();renderGrowthTargets();renderIdeas();updatePublishGuard();
+loadSettings();resetAgents();setConnectedUI(false);applyYoutubeTestModeUI();renderGrowthTargets();renderIdeas();updatePublishGuard();renderBatch30State();

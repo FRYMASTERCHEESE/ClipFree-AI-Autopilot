@@ -124,12 +124,13 @@
 
           <div class="notice subtle"><strong>Faceless growth mode:</strong> topics, wording and packaging are optimized for advertiser-heavy English-speaking markets. Organic YouTube traffic cannot be forced to a country, and the $30,000/month figure is a goal — not a guaranteed result.</div>
 
-          <label><span>Videos in this batch</span>
+          <label><span>Videos in normal batch</span>
             <select id="batchCount">
               <option value="1" selected>1 video</option>
               <option value="2">2 videos</option>
               <option value="3">3 videos</option>
               <option value="4">4 videos</option>
+              <option value="10">10 videos</option>
             </select>
           </label>
 
@@ -151,7 +152,19 @@
             <button id="generatePlan" class="primary" type="button">1. Generate complete plan</button>
             <button id="createVideo" class="secondary" type="button" disabled>2. Create original video</button>
           </div>
-          <button id="runBatch" class="primary full" type="button">✨ Run complete batch</button>
+          <button id="runBatch" class="primary full" type="button">✨ Run normal batch</button>
+
+          <div class="card" style="margin-top:14px">
+            <div class="badge">30-SHORT CASH-COW QUEUE</div>
+            <h3>Generate + upload 30 SEO Shorts</h3>
+            <p class="muted">Sequential mobile-safe mode: creates one Short, uploads it, clears memory, then moves to the next. Progress is saved so a failed connection or expired Google token does not lose your place.</p>
+            <button id="runThirtyShorts" class="primary full" type="button">🚀 Start 30 SEO Shorts</button>
+            <button id="stopThirtyShorts" class="secondary full hidden" type="button">Stop after current Short</button>
+            <button id="resetThirtyShorts" class="secondary full" type="button">Reset 30-Short progress</button>
+            <div id="batch30Status" class="notice subtle">Ready. The queue uses finance, insurance, mortgages, AI/SaaS, business and legal education topics with U.S.-leaning commercial search intent.</div>
+            <div class="progress"><div id="batch30Progress"></div></div>
+          </div>
+
           <div class="notice good"><strong>Hands-Free upload:</strong> connect YouTube once, check the publishing confirmation once, then future videos created while this page is open can upload automatically. No separate Upload button is needed when Hands-Free Autopilot is ON.</div>
           <div id="autopilotStatus" class="notice subtle">Ready. AUTO mode rotates through high-commercial-value educational niches and avoids duplicate topic ideas stored on this device.</div>
           <div class="progress"><div id="autopilotProgress"></div></div>
@@ -336,6 +349,6 @@
     <a href="privacy.html">Privacy Policy</a> • <a href="terms.html">Terms</a> • <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms</a> • <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>
   </footer>
 
-  <script type="module" src="app.js?v=20260927g"></script>
+  <script type="module" src="app.js?v=20260927h"></script>
 </body>
 </html>
