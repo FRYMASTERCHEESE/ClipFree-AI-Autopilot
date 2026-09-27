@@ -155,13 +155,14 @@
           <button id="runBatch" class="primary full" type="button">✨ Run normal batch</button>
 
           <div class="card" style="margin-top:14px">
-            <div class="badge">30-SHORT CASH-COW QUEUE</div>
-            <h3>Generate + upload 30 SEO Shorts</h3>
+            <div class="badge">20-SHORT CASH-COW QUEUE</div>
+            <h3>Generate + upload 20 SEO Shorts</h3>
             <p class="muted">Stable Android mode: creates one Short at a time, automatically restarts narration if Android stops the voice worker, uploads it, clears memory, then moves on. Progress is saved after every successful upload.</p>
-            <button id="runThirtyShorts" class="primary full" type="button">🚀 Start 30 SEO Shorts</button>
+            <button id="runThirtyShorts" class="primary full" type="button">🚀 Start 20 SEO Shorts</button>
             <button id="stopThirtyShorts" class="secondary full hidden" type="button">Stop after current Short</button>
-            <button id="resetThirtyShorts" class="secondary full" type="button">Reset 30-Short progress</button>
+            <button id="resetThirtyShorts" class="secondary full" type="button">Reset 20-Short progress</button>
             <div id="batch30Status" class="notice subtle">Ready. The queue uses finance, insurance, mortgages, AI/SaaS, business and legal education topics with U.S.-leaning commercial search intent.</div>
+            <div class="notice good"><strong>SEO Growth Mode:</strong> primary keyword in the title, first description line, spoken hook and tag cluster; concise mobile title; branded CTA; channel link; topic-specific hashtags; and consistent niche playlists. These improve discoverability, but no code can guarantee a #1 ranking, views or subscribers.</div>
             <div class="progress"><div id="batch30Progress"></div></div>
           </div>
 
@@ -239,18 +240,19 @@
       </div>
 
       <div id="youtubeStatus" class="notice subtle">YouTube is not connected yet.</div>
+      <div class="notice good"><strong>Automatic Public Mode:</strong> ClipFree requests <strong>Public</strong> for every completed upload when Personal Test Mode is OFF. YouTube itself restricts uploads from unverified API projects to Private, so the project must pass YouTube's API compliance audit before automatic public publishing can take effect.</div>
 
       <div class="control-grid">
         <section class="card form-grid">
           <h3>Publishing settings</h3>
-          <label><span>Visibility</span><select id="privacySelect"><option value="private" selected>Private — safest while testing</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></label>
+          <label><span>Visibility</span><select id="privacySelect"><option value="public" selected>Public — automatic after API audit</option><option value="unlisted">Unlisted</option><option value="private">Private</option></select></label>
           <label><span>Schedule <em>(optional)</em></span><input id="scheduleAt" type="datetime-local" /></label>
           <label class="toggle-line"><input id="autoPlaylist" type="checkbox" checked /><span><strong>Automatic niche playlists</strong><small>Creates the right playlist for each niche and also adds Shorts or long-form videos to a format playlist.</small></span></label>
           <label><span>Extra/manual playlist <em>(optional)</em></span><input id="playlistName" value="" placeholder="Leave blank for automatic playlists only" maxlength="150" /></label>
           <button id="createPlaylists" class="secondary" type="button">Create all automatic playlists on YouTube</button>
           <div id="playlistStatus" class="notice subtle">Automatic playlists: Money & Finance, Insurance, Law, Real Estate & Mortgages, AI & SaaS, Business & Marketing, High Value Shorts and High Value Deep Dives.</div>
           <label><span>Audience</span><select id="madeForKids"><option value="false" selected>Not made for kids</option><option value="true">Made for kids</option></select></label>
-          <label class="toggle-line"><input id="fastUpload" type="checkbox" checked /><span><strong>⚡ TURBO UPLOAD MODE</strong><small>Keeps Full HD 1080p (1080×1920 Shorts/Reels or 1920×1080 long-form) while using upload-friendly H.264 compression, 24 fps and efficient audio so files upload much faster without dropping to 720p. Turn OFF for a larger high-bitrate 1080p file.</small></span></label>
+          <label class="toggle-line"><input id="fastUpload" type="checkbox" checked /><span><strong>⚡ FASTEST 1080p UPLOAD MODE</strong><small>Keeps Full HD 1080p while using a smaller H.264 file tuned for simple graphics/Shorts, reducing upload time on mobile without changing the 1080×1920 dimensions.</small></span></label>
           <label class="toggle-line"><input id="uploadCaptions" type="checkbox" checked /><span><strong>Upload captions</strong><small>Generated SRT when available.</small></span></label>
           <label class="toggle-line"><input id="uploadThumbnail" type="checkbox" checked /><span><strong>Upload thumbnail</strong><small>Generated locally from your content package.</small></span></label>
           <button id="uploadYoutube" class="primary" type="button" disabled>Upload current video to YouTube</button>
@@ -349,6 +351,6 @@
     <a href="privacy.html">Privacy Policy</a> • <a href="terms.html">Terms</a> • <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms</a> • <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>
   </footer>
 
-  <script type="module" src="app.js?v=20260927i"></script>
+  <script type="module" src="app.js?v=20260927m"></script>
 </body>
 </html>

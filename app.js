@@ -4,7 +4,7 @@ import { fetchFile, toBlobURL } from 'https://unpkg.com/@ffmpeg/util@0.12.1/dist
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = 'clipfree_high_value_settings_v1';
 const USED_TOPICS_KEY = 'clipfree_high_value_topics_v1';
-const BATCH30_STATE_KEY = 'clipfree_high_value_batch30_v1';
+const BATCH30_STATE_KEY = 'clipfree_high_value_batch20_v1';
 const NETWORK_TIMEOUT_MS = 45000;
 const FFMPEG_LOAD_TIMEOUT_MS = 180000;
 const FFMPEG_EXEC_TIMEOUT_MS = 600000;
@@ -131,6 +131,7 @@ const FORMAT_PLAYLISTS = {
   long: { title:'High Value Deep Dives', description:'Long-form educational explainers from High Value Explained.' }
 };
 
+const BATCH_TARGET = 20;
 const HIGH_VALUE_30 = [
   {niche:'finance',keyword:'how to save money',title:'How to Save Money: 5 Rules That Actually Help',thumb:'SAVE MORE MONEY',hook:'Saving money gets easier when you stop treating every dollar the same.',explain:'Start by separating fixed bills, flexible spending, short-term savings and long-term goals. Automate the savings piece first so it happens before optional spending.',example:'For example, moving a small amount on payday is usually easier than hoping money is left at the end of the month.',takeaway:'The useful habit is consistency, not chasing a perfect percentage.'},
   {niche:'finance',keyword:'personal finance',title:'Personal Finance Basics in 60 Seconds',thumb:'MONEY BASICS',hook:'Personal finance is really four jobs, not one.',explain:'You earn money, manage spending, protect yourself from emergencies and build toward future goals. A simple system tracks cash flow, keeps expensive debt under control and leaves room for savings.',example:'If income rises but spending rises just as fast, your position may not improve at all.',takeaway:'Focus on the system behind your money, not just the balance today.'},
@@ -284,7 +285,7 @@ function applyYoutubeTestModeUI(){
   const on=youtubeTestModeEnabled();
   if(els.privacy){
     els.privacy.disabled=on;
-    if(on)els.privacy.value='private';
+    els.privacy.value=on?'private':'public';
   }
   if(els.youtubeTestModeStatus){
     els.youtubeTestModeStatus.className=on?'notice good':'notice subtle';
@@ -309,7 +310,7 @@ function destroyTtsWorker(){
 function ensureTtsWorkerInstance(){
   if(state.ttsWorker)return state.ttsWorker;
   if(!window.Worker)throw new Error('This browser does not support the background voice worker.');
-  const workerUrl=new URL('./tts-worker.js?v=20260927i',import.meta.url);
+  const workerUrl=new URL('./tts-worker.js?v=20260927m',import.meta.url);
   const worker=new Worker(workerUrl,{type:'module'});
   state.ttsWorker=worker;
   worker.onmessage=(e)=>{
@@ -422,7 +423,7 @@ function rememberTopic(topic){
 function batch30State(){
   try{
     const raw=JSON.parse(localStorage.getItem(BATCH30_STATE_KEY)||'{}');
-    const nextIndex=Math.max(0,Math.min(HIGH_VALUE_30.length,Number(raw.nextIndex)||0));
+    const nextIndex=Math.max(0,Math.min(BATCH_TARGET,Number(raw.nextIndex)||0));
     const completed=Array.isArray(raw.completed)?raw.completed.filter(Boolean):[];
     return {nextIndex,completed,startedAt:raw.startedAt||null,finishedAt:raw.finishedAt||null};
   }catch{return {nextIndex:0,completed:[],startedAt:null,finishedAt:null};}
@@ -435,21 +436,21 @@ function resetBatch30State(){
 function renderBatch30State(){
   if(!els.batch30Status||!els.batch30Progress||!els.runThirty)return;
   const s=batch30State();
-  const done=Math.min(HIGH_VALUE_30.length,s.nextIndex);
-  els.batch30Progress.style.width=`${Math.round((done/HIGH_VALUE_30.length)*100)}%`;
-  if(done>=HIGH_VALUE_30.length){
+  const done=Math.min(BATCH_TARGET,s.nextIndex);
+  els.batch30Progress.style.width=`${Math.round((done/BATCH_TARGET)*100)}%`;
+  if(done>=BATCH_TARGET){
     els.batch30Status.className='notice good';
-    els.batch30Status.textContent=`30/30 complete. ${s.completed.length} YouTube video IDs saved in this browser.`;
-    els.runThirty.textContent='✓ 30 Shorts Complete';
+    els.batch30Status.textContent=`20/20 complete. ${s.completed.length} YouTube video IDs saved in this browser.`;
+    els.runThirty.textContent='✓ 20 Shorts Complete';
     els.runThirty.disabled=true;
   }else{
     els.runThirty.disabled=state.batch30Running;
-    els.runThirty.textContent=done>0?`▶ Resume 30 Shorts · ${done}/30 complete`:'🚀 Start 30 SEO Shorts';
+    els.runThirty.textContent=done>0?`▶ Resume 20 Shorts · ${done}/30 complete`:'🚀 Start 20 SEO Shorts';
     if(!state.batch30Running){
       els.batch30Status.className='notice subtle';
       els.batch30Status.textContent=done>0
-        ? `Saved progress: ${done}/30 complete. Next: ${HIGH_VALUE_30[done].title}`
-        : 'Ready. The queue uses 30 original high-commercial-value educational Shorts and saves progress after every successful YouTube upload.';
+        ? `Saved progress: ${done}/20 complete. Next: ${HIGH_VALUE_30[done].title}`
+        : 'Ready. The queue uses 20 original high-commercial-value educational Shorts and saves progress after every successful YouTube upload.';
     }
   }
 }
@@ -466,13 +467,23 @@ function cleanupBetweenBatchVideos(){
 }
 function buildSeededShortPlan(seed,index=0){
   const profile=NICHES[seed.niche];
-  const ctas=['Save this explanation for later.','Share this with someone learning the basics.','Follow for another plain-English breakdown.','Keep this as a quick reference.'];
+  const ctas=[
+    'Save this explanation for later and subscribe to High Value Explained for the next breakdown.',
+    'Share this with someone learning the basics and subscribe for another plain-English explanation.',
+    'Subscribe to High Value Explained for more fast money, insurance, law, property, AI and business explainers.',
+    'Keep this as a quick reference, then subscribe for the next simple breakdown.'
+  ];
   // Keep spoken Shorts concise to reduce phone TTS/render load.
   // The full educational disclaimer remains in the YouTube description.
   const script=`${seed.hook} ${seed.explain} ${seed.example} ${seed.takeaway} ${ctas[index%ctas.length]}`;
-  const hashtags=['#Shorts',`#${profile.short.replace(/[^a-z0-9]/gi,'')}`,'#Explained','#Education'];
-  const tags=[seed.keyword,...profile.keywords,seed.topic||seed.title.toLowerCase(),'high value explained','beginner guide','youtube shorts'];
-  const title=clean(seed.title).slice(0,100);
+  const topicHash='#'+clean(seed.keyword).replace(/[^a-z0-9]/gi,'');
+  const hashtags=['#Shorts',topicHash,`#${profile.short.replace(/[^a-z0-9]/gi,'')}`,'#Explained'].filter(Boolean);
+  const tags=[seed.keyword,`${seed.keyword} explained`,`${seed.keyword} for beginners`,`${seed.keyword} basics`,`what is ${seed.keyword}`,...profile.keywords,seed.topic||seed.title.toLowerCase(),'high value explained','plain english','beginner guide','youtube shorts'];
+  const rawTitle=clean(seed.title);
+  const keywordTitle=clean(seed.keyword).replace(/\w/g,m=>m.toUpperCase());
+  const title=(rawTitle.toLowerCase().startsWith(clean(seed.keyword).toLowerCase())
+    ? rawTitle
+    : `${keywordTitle}: ${rawTitle}`).slice(0,72);
   const topic=clean(seed.topic||seed.keyword||seed.title);
   const titleCandidates=[
     title,
@@ -481,7 +492,7 @@ function buildSeededShortPlan(seed,index=0){
     `Understand ${clean(seed.keyword)} in Under a Minute`,
     `${clean(seed.keyword).replace(/\b\w/g,m=>m.toUpperCase())} Basics`
   ].map(x=>clean(x).slice(0,86));
-  const description=`${title}\n\nA clear, beginner-friendly explanation of ${seed.keyword}. Built for viewers who want the concept without unnecessary jargon.\n\n${profile.disclaimer}\n\n${hashtags.join(' ')}`;
+  const description=`${seed.keyword} explained simply in under a minute — with one clear example and takeaway.\n\n${title}\n\nLearn the key idea, one practical example and the main takeaway without unnecessary jargon. High Value Explained covers money, insurance, law, real estate, AI/software and business in plain English.\n\n${profile.disclaimer}\n\n${hashtags.join(' ')}`;
   rememberTopic(topic);
   return {
     niche:seed.niche,nicheLabel:profile.label,valueLabel:profile.valueLabel,categoryId:profile.categoryId,format:'short',topic,
@@ -765,7 +776,7 @@ async function mobileWorkerTts(text){
         ? 'Starting stable local narration…'
         : `Narration worker restarted automatically · attempt ${attempt}/3…`,'subtle');
 
-      const workerUrl=new URL('./tts-worker.js?v=20260927i',import.meta.url);
+      const workerUrl=new URL('./tts-worker.js?v=20260927m',import.meta.url);
       worker=new Worker(workerUrl,{type:'module'});
 
       await dedicatedTtsWorkerRequest(worker,'init',{preferWebGPU:false},msg=>{
@@ -947,10 +958,10 @@ async function renderVideo(){
     filters.push('fps=24','format=yuv420p');
 
     if(turboEnabled()){
-      const turboRate=plan.format==='long'?(mobile?'3200k':'3800k'):(mobile?'2800k':'3400k');
-      const turboBuf=plan.format==='long'?(mobile?'6400k':'7600k'):(mobile?'5600k':'6800k');
-      args.push('-vf',filters.join(','),'-c:v','libx264','-preset',mobile?'ultrafast':'veryfast','-tune','stillimage','-crf',mobile?'29':'28','-maxrate',turboRate,'-bufsize',turboBuf);
-      args.push('-c:a','aac','-b:a','96k','-af','volume=1.35','-shortest');
+      const turboRate=plan.format==='long'?(mobile?'2400k':'3000k'):(mobile?'1800k':'2400k');
+      const turboBuf=plan.format==='long'?(mobile?'4800k':'6000k'):(mobile?'3600k':'4800k');
+      args.push('-vf',filters.join(','),'-c:v','libx264','-preset',mobile?'ultrafast':'veryfast','-tune','stillimage','-crf',mobile?'31':'30','-maxrate',turboRate,'-bufsize',turboBuf,'-g','48','-keyint_min','48','-sc_threshold','0');
+      args.push('-c:a','aac','-b:a',mobile?'64k':'80k','-af','volume=1.35','-shortest');
     }else{
       args.push('-vf',filters.join(','),'-c:v','libx264','-preset',mobile?'ultrafast':'veryfast','-crf',mobile?'24':'22','-maxrate',mobile?'6000k':'8000k','-bufsize',mobile?'12000k':'16000k');
       args.push('-c:a','aac','-b:a','160k','-af','volume=1.35','-shortest');
@@ -1004,7 +1015,7 @@ async function runThirtyShorts(){
   }
   if(navigator.onLine===false){
     els.batch30Status.className='notice bad';
-    els.batch30Status.textContent='Your device is offline. Reconnect before starting the 30-Short queue.';
+    els.batch30Status.textContent='Your device is offline. Reconnect before starting the 20-Short queue.';
     return;
   }
   const saved=batch30State();
@@ -1017,69 +1028,72 @@ async function runThirtyShorts(){
 
   try{
     els.batch30Status.className='notice subtle';
-    els.batch30Status.textContent='Checking YouTube upload permission…';
+    els.batch30Status.textContent=youtubeTestModeEnabled()
+      ? 'Checking YouTube permission · Test Mode uploads will remain Private until the API project passes audit…'
+      : 'Checking YouTube permission · uploads will be requested as Public…';
     await ensurePublishToken();
+    if(!state.channel)await refreshChannel();
     resetPlaylistCache();
     await ensureAllAutomaticPlaylists();
 
     let progress=batch30State();
     if(!progress.startedAt)progress.startedAt=new Date().toISOString();
 
-    for(let i=progress.nextIndex;i<HIGH_VALUE_30.length;i++){
+    for(let i=progress.nextIndex;i<BATCH_TARGET;i++){
       if(state.batch30StopRequested)break;
       const seed=HIGH_VALUE_30[i];
 
       cleanupBetweenBatchVideos();
       els.batch30Status.className='notice subtle';
-      els.batch30Status.textContent=`${i+1}/30 · Building SEO Short: ${seed.title}`;
-      els.batch30Progress.style.width=`${Math.round((i/30)*100)}%`;
+      els.batch30Status.textContent=`${i+1}/20 · Building SEO Short: ${seed.title}`;
+      els.batch30Progress.style.width=`${Math.round((i/BATCH_TARGET)*100)}%`;
 
       const plan=buildSeededShortPlan(seed,i);
       renderPlan(plan);
-      setAgent('strategy','30-Short queue','good');
+      setAgent('strategy','20-Short queue','good');
       setAgent('research',`SEO seed: ${seed.keyword}`,'good');
       setAgent('script','Original short script','good');
       setAgent('seo','Keyword aligned','good');
       setAgent('thumbnail','Ready','good');
 
-      els.batch30Status.textContent=`${i+1}/30 · Preparing phone memory for narration: ${seed.title}`;
+      els.batch30Status.textContent=`${i+1}/20 · Preparing phone memory for narration: ${seed.title}`;
       if(mobileSafeRender())await waitMs(1000);
-      els.batch30Status.textContent=`${i+1}/30 · Rendering 1080×1920: ${seed.title}`;
+      els.batch30Status.textContent=`${i+1}/20 · Rendering 1080×1920: ${seed.title}`;
       await renderVideo();
 
-      els.batch30Status.textContent=`${i+1}/30 · Uploading safely with resume + retry: ${seed.title}`;
+      els.batch30Status.textContent=`${i+1}/20 · Uploading safely with resume + retry: ${seed.title}`;
       const result=await uploadYoutube();
       if(!result?.id)throw new Error(`Short ${i+1} did not return a YouTube video ID.`);
 
       progress=batch30State();
       progress.nextIndex=i+1;
-      progress.completed=[...(progress.completed||[]),{index:i,videoId:result.id,title:seed.title,uploadedAt:new Date().toISOString()}].slice(-30);
-      if(progress.nextIndex>=HIGH_VALUE_30.length)progress.finishedAt=new Date().toISOString();
+      progress.completed=[...(progress.completed||[]),{index:i,videoId:result.id,title:seed.title,uploadedAt:new Date().toISOString()}].slice(-20);
+      if(progress.nextIndex>=BATCH_TARGET)progress.finishedAt=new Date().toISOString();
       saveBatch30State(progress);
 
-      els.batch30Progress.style.width=`${Math.round(((i+1)/30)*100)}%`;
+      els.batch30Progress.style.width=`${Math.round(((i+1)/BATCH_TARGET)*100)}%`;
       els.batch30Status.className='notice good';
-      els.batch30Status.textContent=`${i+1}/30 uploaded successfully · ${seed.title}`;
+      els.batch30Status.textContent=`${i+1}/20 uploaded successfully · ${seed.title}`;
       cleanupBetweenBatchVideos();
       await waitMs(mobileSafeRender()?2500:1200);
     }
 
     const final=batch30State();
-    if(final.nextIndex>=HIGH_VALUE_30.length){
+    if(final.nextIndex>=BATCH_TARGET){
       els.batch30Status.className='notice good';
-      els.batch30Status.textContent='30/30 Shorts completed and uploaded. Refresh Analytics after YouTube finishes processing them.';
-      setStatus('30-Short SEO queue complete.','good');
+      els.batch30Status.textContent='20/20 Shorts completed and uploaded in quota-safe SEO mode. Refresh Analytics after YouTube finishes processing them.';
+      setStatus('20-Short SEO queue complete.','good');
       setTimeout(()=>refreshAnalytics().catch(()=>{}),2500);
     }else if(state.batch30StopRequested){
       els.batch30Status.className='notice subtle';
-      els.batch30Status.textContent=`Paused safely at ${final.nextIndex}/30. Tap Resume when you are ready.`;
+      els.batch30Status.textContent=`Paused safely at ${final.nextIndex}/20. Tap Resume when you are ready.`;
     }
   }catch(err){
-    console.error('30-Short queue stopped safely',err);
+    console.error('20-Short queue stopped safely',err);
     const s=batch30State();
     els.batch30Status.className='notice bad';
-    els.batch30Status.textContent=`Paused safely at ${s.nextIndex}/30: ${err.message||err}. Fix the issue/reconnect YouTube, then tap Resume 30 Shorts. Completed uploads will not be intentionally repeated.`;
-    setStatus(`30-Short queue paused at ${s.nextIndex}/30.`,'bad');
+    els.batch30Status.textContent=`Paused safely at ${s.nextIndex}/20: ${err.message||err}. Fix the issue/reconnect YouTube, then tap Resume 20 Shorts. Completed uploads will not be intentionally repeated.`;
+    setStatus(`20-Short queue paused at ${s.nextIndex}/30.`,'bad');
   }finally{
     state.batch30Running=false;
     els.stopThirty.classList.add('hidden');
@@ -1280,7 +1294,7 @@ async function queryResumableOffset(sessionUrl,total){
 async function uploadVideoResumable(metadata,videoBlob,onProgress){
   const total=videoBlob.size;
   const sessionUrl=await retryAsync(()=>startResumableUpload(metadata,total),'Starting YouTube upload',3);
-  const chunkSize=4*1024*1024;
+  const chunkSize=8*1024*1024;
   let offset=0;
   let completed=null;
   while(offset<total){
@@ -1361,16 +1375,34 @@ async function ensureAllAutomaticPlaylists(){
   return made;
 }
 async function addPlaylist(videoId,playlistId){if(!playlistId)return;await apiJson(ytUrl('playlistItems',{part:'snippet'}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snippet:{playlistId,resourceId:{kind:'youtube#video',videoId}}})});}
+function channelSubscribeLink(){
+  const id=clean(state.channel?.id||'');
+  return id?`https://www.youtube.com/channel/${id}`:'';
+}
+function finalUploadDescription(plan){
+  let d=String(plan?.description||'').trim();
+  const link=channelSubscribeLink();
+  if(link&&!d.includes(link))d+=`\n\nSubscribe to High Value Explained for more clear explainers:\n${link}`;
+  return d.slice(0,5000);
+}
+
 async function uploadYoutube(){
   if(navigator.onLine===false)throw new Error('Your device is offline. Reconnect to the internet before uploading.');
   pullEditsIntoPlan();if(!state.videoBlob)throw new Error('Generate a video first.');if(!state.plan)throw new Error('No content package is ready.');if(!els.rights.checked)throw new Error('Confirm the factual / publishing review before uploading.');await ensurePublishToken();const title=clean(state.plan.chosenTitle);if(!title)throw new Error('A YouTube title is required.');
   await keepScreenAwake();
   els.uploadButton.disabled=true;els.uploadProgress.style.width='2%';setAgent('publishing','Uploading','working');
   try{
-    const status={privacyStatus:youtubeTestModeEnabled()?'private':els.privacy.value,selfDeclaredMadeForKids:els.madeForKids.value==='true'};const publishAt=els.schedule.value?new Date(els.schedule.value):null;if(!youtubeTestModeEnabled()&&publishAt&&Number.isFinite(publishAt.getTime())&&publishAt>Date.now()){status.privacyStatus='private';status.publishAt=publishAt.toISOString();}
-    const metadata={snippet:{title:title.slice(0,100),description:state.plan.description.slice(0,5000),categoryId:state.plan.categoryId||'27',defaultLanguage:'en',tags:state.plan.tags.slice(0,15)},status};
+    const status={
+      privacyStatus:youtubeTestModeEnabled()?'private':'public',
+      selfDeclaredMadeForKids:els.madeForKids.value==='true'
+    };const publishAt=els.schedule.value?new Date(els.schedule.value):null;
+    if(!state.batch30Running&&!youtubeTestModeEnabled()&&publishAt&&Number.isFinite(publishAt.getTime())&&publishAt>Date.now()){
+      status.privacyStatus='private';
+      status.publishAt=publishAt.toISOString();
+    }
+    const metadata={snippet:{title:title.slice(0,100),description:finalUploadDescription(state.plan),categoryId:state.plan.categoryId||'27',defaultLanguage:'en',defaultAudioLanguage:'en',tags:state.plan.tags.slice(0,15)},status};
     const started=performance.now();let lastT=started,lastLoaded=0;
-    els.uploadResult.textContent=`Uploading ${mb(state.videoBlob.size)} MB${turboEnabled()?' · TURBO':''} with resumable protection…`;
+    els.uploadResult.textContent=`Uploading ${mb(state.videoBlob.size)} MB${turboEnabled()?' · FAST 1080p':''}${state.batch30Running?' · quota-safe batch':''} with resumable protection…`;
     const result=await uploadVideoResumable(metadata,state.videoBlob,(loaded,total)=>{
       const p=total?loaded/total:0;const now=performance.now();const dt=(now-lastT)/1000;
       if(dt>.65){
@@ -1386,7 +1418,7 @@ async function uploadYoutube(){
       // Run thumbnail, captions and playlist work together instead of waiting for each one in sequence.
       const jobs=[];
       if(els.uploadThumbnail.checked)jobs.push(retryAsync(()=>uploadThumbnail(result.id),'Thumbnail upload',3));
-      if(els.uploadCaptions.checked&&state.srt)jobs.push(retryAsync(()=>uploadCaption(result.id),'Caption upload',3));
+      if(els.uploadCaptions.checked&&state.srt&&!state.batch30Running)jobs.push(retryAsync(()=>uploadCaption(result.id),'Caption upload',3));
       const playlistSpecs=els.autoPlaylist?.checked?autoPlaylistSpecs(state.plan):[];const manual=clean(els.playlistName?.value||'');if(manual)playlistSpecs.push({title:manual,description:'High Value Explained videos.'});const seen=new Set();
       for(const spec of playlistSpecs){if(!spec?.title||seen.has(spec.title.toLowerCase()))continue;seen.add(spec.title.toLowerCase());jobs.push(retryAsync(async()=>{const pid=await ensurePlaylist(spec.title,spec.description);if(pid)await addPlaylist(result.id,pid);},`Playlist: ${spec.title}`,3));}
       let extraFailures=0;
@@ -1401,7 +1433,10 @@ async function uploadYoutube(){
     els.uploadProgress.style.width='100%';
     const extraFailures=Number(result.extraFailures||0);
     els.uploadResult.className=extraFailures?'notice subtle':'notice good';
-    els.uploadResult.innerHTML=`Video upload complete in about ${uploadSeconds}s${extraFailures?` · ${extraFailures} extra task${extraFailures===1?'':'s'} need retrying`:''}${result.id?`. <a href="https://www.youtube.com/watch?v=${encodeURIComponent(result.id)}" target="_blank" rel="noopener">Open on YouTube</a>`:''}.`;
+    const visibilityNote=youtubeTestModeEnabled()
+      ? ' · YouTube API Test Mode: Private until project audit'
+      : ' · requested Public';
+    els.uploadResult.innerHTML=`Video upload complete in about ${uploadSeconds}s${visibilityNote}${extraFailures?` · ${extraFailures} extra task${extraFailures===1?'':'s'} need retrying`:''}${result.id?`. <a href="https://www.youtube.com/watch?v=${encodeURIComponent(result.id)}" target="_blank" rel="noopener">Open on YouTube</a>`:''}.`;
     setAgent('publishing',extraFailures?'Video uploaded · extras need attention':'Upload complete',extraFailures?'warn':'good');
     if(!state.batch30Running)setTimeout(()=>refreshAnalytics().catch(()=>{}),1500);
     return result;
@@ -1425,7 +1460,7 @@ els.runThirty?.addEventListener('click',()=>runThirtyShorts());
 els.stopThirty?.addEventListener('click',requestStopThirtyShorts);
 els.resetThirty?.addEventListener('click',()=>{
   if(state.batch30Running)return;
-  if(confirm('Reset saved 30-Short progress back to 0/30? This does not delete videos already uploaded to YouTube.'))resetBatch30State();
+  if(confirm('Reset saved 20-Short progress back to 0/30? This does not delete videos already uploaded to YouTube.'))resetBatch30State();
 });
 els.saveAi.addEventListener('click',saveAi);els.saveYoutube.addEventListener('click',saveYoutube);els.connect.addEventListener('click',connectYoutube);els.connectTop?.addEventListener('click',connectYoutube);els.disconnect.addEventListener('click',disconnectYoutube);els.disconnectTop?.addEventListener('click',disconnectYoutube);els.refreshAnalytics.addEventListener('click',refreshAnalytics);els.uploadButton.addEventListener('click',()=>uploadYoutube().catch(err=>console.error(err)));
 els.createPlaylists?.addEventListener('click',async()=>{els.createPlaylists.disabled=true;try{await ensureAllAutomaticPlaylists();}catch(err){if(els.playlistStatus){els.playlistStatus.className='notice bad';els.playlistStatus.textContent=err.message||String(err);}}finally{els.createPlaylists.disabled=false;}});
