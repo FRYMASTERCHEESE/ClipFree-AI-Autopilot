@@ -10,7 +10,13 @@
   <meta property="og:title" content="ClipFree AI — High-Value YouTube Autopilot" />
   <meta property="og:description" content="Research → script → original video → thumbnail → SEO → preview → YouTube upload → analytics." />
   <meta property="og:type" content="website" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://unpkg.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="preconnect" href="https://accounts.google.com" crossorigin />
+  <link rel="preconnect" href="https://www.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://generativelanguage.googleapis.com" crossorigin />
+  <link rel="preconnect" href="https://huggingface.co" crossorigin />
+  <link rel="stylesheet" href="styles.css?v=20260927d" />
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script type="application/ld+json">
   {
@@ -122,14 +128,15 @@
           </label>
 
           <label class="toggle-line"><input id="freeOnly" type="checkbox" checked /><span><strong>FREE-ONLY MODE</strong><small>Never requires paid image/video generation. Uses local graphics and optional Gemini free-tier calls.</small></span></label>
-          <label class="toggle-line"><input id="fullAutopilot" type="checkbox" /><span><strong>FULL AUTOPILOT</strong><small>After setup, generate and upload automatically. Leave OFF to preview first.</small></span></label>
-          <label class="toggle-line"><input id="rightsConfirm" type="checkbox" /><span><strong>Publishing confirmation</strong><small>I will review factual accuracy and confirm I have the right to publish the generated material.</small></span></label>
+          <label class="toggle-line"><input id="fullAutopilot" type="checkbox" checked /><span><strong>🚀 HANDS-FREE AUTOPILOT</strong><small>After the one-time YouTube connection and publishing confirmation, every newly generated video uploads automatically with its SEO package, thumbnail, captions and playlists. Turn OFF anytime to preview first.</small></span></label>
+          <label class="toggle-line"><input id="rightsConfirm" type="checkbox" /><span><strong>One-time publishing confirmation</strong><small>I confirm I will publish only original/authorized material and review factual accuracy. Once checked, ClipFree remembers this choice on this device so Hands-Free Autopilot does not ask again.</small></span></label>
 
           <div class="button-row">
             <button id="generatePlan" class="primary" type="button">1. Generate complete plan</button>
             <button id="createVideo" class="secondary" type="button" disabled>2. Create original video</button>
           </div>
           <button id="runBatch" class="primary full" type="button">✨ Run complete batch</button>
+          <div class="notice good"><strong>Hands-Free upload:</strong> connect YouTube once, check the publishing confirmation once, then future videos created while this page is open can upload automatically. No separate Upload button is needed when Hands-Free Autopilot is ON.</div>
           <div id="autopilotStatus" class="notice subtle">Ready. AUTO mode rotates through high-commercial-value educational niches and avoids duplicate topic ideas stored on this device.</div>
           <div class="progress"><div id="autopilotProgress"></div></div>
         </section>
@@ -197,9 +204,9 @@
         <div>
           <div class="badge">OFFICIAL YOUTUBE API</div>
           <h2>Preview, schedule or publish.</h2>
-          <p>Connect your own YouTube account. ClipFree can upload the generated video, metadata, thumbnail and captions. Google controls OAuth approval and may restrict unverified API-project uploads.</p>
+          <p>Connect your own YouTube account in Personal Test Mode now, without waiting for full OAuth verification. ClipFree connects read-only first, then asks for publish permission only when you actually upload.</p>
         </div>
-        <div class="connect-actions"><button id="connectYoutube" class="primary" type="button">Connect YouTube</button><button id="disconnectYoutube" class="secondary hidden" type="button">Disconnect</button></div>
+        <div class="connect-actions"><button id="connectYoutube" class="primary" type="button">Connect YouTube · Test Mode</button><button id="disconnectYoutube" class="secondary hidden" type="button">Disconnect</button></div>
       </div>
 
       <div id="youtubeStatus" class="notice subtle">YouTube is not connected yet.</div>
@@ -285,13 +292,17 @@
         <section class="card form-grid">
           <h3>YouTube / Google</h3>
           <label><span>Google OAuth Client ID</span><input id="googleClientId" autocomplete="off" placeholder="1234567890-xxxx.apps.googleusercontent.com" /></label>
+          <label class="toggle-line"><input id="youtubeTestMode" type="checkbox" checked /><span><strong>🧪 PERSONAL TEST MODE — no verification yet</strong><small>Use your own Google account as a Google Cloud test user. Connect asks only for read/analytics access first. Publish permission is requested only when you upload. While this is on, ClipFree forces API uploads to Private.</small></span></label>
+          <div id="youtubeTestModeStatus" class="notice good">Personal Test Mode is ON: you can connect before full OAuth verification. API uploads stay Private until your YouTube API project passes its audit.</div>
           <button id="saveYoutube" class="primary" type="button">Save YouTube settings</button>
           <div id="youtubeSetupStatus" class="notice subtle">Enable YouTube Data API v3 and YouTube Analytics API in Google Cloud, then create an OAuth 2.0 Web client.</div>
           <ol class="setup-list">
-            <li>Add <code>https://frymastercheese.github.io</code> as an authorized JavaScript origin.</li>
-            <li>If using a custom domain, add that HTTPS origin too.</li>
-            <li>Use <code>privacy.html</code> and <code>terms.html</code> for your app-policy pages.</li>
-            <li>Google may force uploads to Private until your YouTube API project passes its compliance/audit requirements.</li>
+            <li>Enable YouTube Data API v3 and YouTube Analytics API in the Google Cloud project.</li>
+            <li>Create an OAuth 2.0 <strong>Web application</strong> client and add <code>https://frymastercheese.github.io</code> as an authorized JavaScript origin.</li>
+            <li>In Google Auth Platform → Audience, keep the app in <strong>Testing</strong> and add the Google account that owns High Value Explained as a <strong>Test user</strong>.</li>
+            <li>Testing-mode authorization can expire after 7 days, so reconnect when Google asks.</li>
+            <li>Use <code>privacy.html</code> and <code>terms.html</code> for the app-policy pages.</li>
+            <li>Until the YouTube API project passes its compliance audit, API-uploaded videos are restricted to <strong>Private</strong>. ClipFree enforces that automatically in Personal Test Mode.</li>
           </ol>
         </section>
       </div>
@@ -309,6 +320,6 @@
     <a href="privacy.html">Privacy Policy</a> • <a href="terms.html">Terms</a> • <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms</a> • <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>
   </footer>
 
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=20260927f"></script>
 </body>
 </html>

@@ -5,13 +5,22 @@ const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = 'clipfree_high_value_settings_v1';
 const USED_TOPICS_KEY = 'clipfree_high_value_topics_v1';
 const NETWORK_TIMEOUT_MS = 45000;
-const FFMPEG_LOAD_TIMEOUT_MS = 90000;
-const FFMPEG_EXEC_TIMEOUT_MS = 240000;
-const TTS_WORKER_TIMEOUT_MS = 180000;
-const SCOPES = [
-  'https://www.googleapis.com/auth/youtube.force-ssl',
+const FFMPEG_LOAD_TIMEOUT_MS = 180000;
+const FFMPEG_EXEC_TIMEOUT_MS = 600000;
+// Local TTS can take several minutes the first time because the model must download/cache.
+// Use an inactivity timeout (not a short absolute timeout) so active work is not killed.
+const TTS_WORKER_IDLE_TIMEOUT_MS = 240000;
+const TTS_WORKER_MAX_TIMEOUT_MS = 720000;
+const READ_SCOPES = [
+  'https://www.googleapis.com/auth/youtube.readonly',
   'https://www.googleapis.com/auth/yt-analytics.readonly'
 ].join(' ');
+const PUBLISH_SCOPES = [
+  'https://www.googleapis.com/auth/youtube.force-ssl',
+  'https://www.googleapis.com/auth/youtube.readonly',
+  'https://www.googleapis.com/auth/yt-analytics.readonly'
+].join(' ');
+const PUBLISH_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
 
 const NICHES = {
   insurance: {
@@ -131,6 +140,7 @@ const state = {
   ffmpeg: null,
   kokoro: null,
   accessToken: '',
+  accessTokenScopes: '',
   expiresAt: 0,
   channel: null,
   recentVideos: [],
@@ -138,8 +148,13 @@ const state = {
   currentNicheIndex: 0,
   renderUrls: [],
   playlistCache: new Map(),
-  playlistCacheLoaded: false
+  playlistCacheLoaded: false,
+  ttsWorker: null,
+  ttsWorkerReady: false,
+  ttsWorkerReadyPromise: null,
+  ttsWorkerPending: new Map()
 };
+let ttsRequestSeq=0;
 
 const els = {
   niche: $('nicheSelect'), format: $('formatSelect'), market: $('marketPreset'), revenueGoal: $('revenueGoal'), batch: $('batchCount'), voice: $('voiceSelect'),
@@ -148,7 +163,7 @@ const els = {
   topic: $('topicOutput'), title: $('titleOutput'), description: $('descriptionOutput'), tags: $('tagsOutput'), hashtags: $('hashtagsOutput'), thumbText: $('thumbnailOutput'), script: $('scriptOutput'),
   variants: $('titleVariants'), quality: $('qualityChecks'), score: $('seoScore'), preview: $('videoPreview'), previewEmpty: $('previewEmpty'), downloadVideo: $('downloadVideo'), downloadThumbnail: $('downloadThumbnail'),
   connect: $('connectYoutube'), disconnect: $('disconnectYoutube'), youtubeStatus: $('youtubeStatus'), youtubeBanner: $('youtubeBanner'),
-  privacy: $('privacySelect'), schedule: $('scheduleAt'), fastUpload: $('fastUpload'), autoPlaylist: $('autoPlaylist'), playlistName: $('playlistName'), createPlaylists: $('createPlaylists'), playlistStatus: $('playlistStatus'), madeForKids: $('madeForKids'), uploadCaptions: $('uploadCaptions'), uploadThumbnail: $('uploadThumbnail'), uploadButton: $('uploadYoutube'), uploadProgress: $('uploadProgress'), uploadResult: $('uploadResult'), publishGuard: $('publishGuard'),
+  privacy: $('privacySelect'), schedule: $('scheduleAt'), youtubeTestMode: $('youtubeTestMode'), youtubeTestModeStatus: $('youtubeTestModeStatus'), fastUpload: $('fastUpload'), autoPlaylist: $('autoPlaylist'), playlistName: $('playlistName'), createPlaylists: $('createPlaylists'), playlistStatus: $('playlistStatus'), madeForKids: $('madeForKids'), uploadCaptions: $('uploadCaptions'), uploadThumbnail: $('uploadThumbnail'), uploadButton: $('uploadYoutube'), uploadProgress: $('uploadProgress'), uploadResult: $('uploadResult'), publishGuard: $('publishGuard'),
   refreshAnalytics: $('refreshAnalytics'), metricViews: $('metricViews'), metricWatch: $('metricWatch'), metricSubs: $('metricSubs'), metricChannel: $('metricChannel'), metricGoal: $('metricGoal'), metricMarkets: $('metricMarkets'), recentVideos: $('recentVideos'), nextIdeas: $('nextIdeas'),
   geminiKey: $('geminiApiKey'), geminiTextModel: $('geminiTextModel'), geminiTtsModel: $('geminiTtsModel'), saveAi: $('saveAi'), aiStatus: $('aiStatus'), googleClientId: $('googleClientId'), saveYoutube: $('saveYoutube'), youtubeSetupStatus: $('youtubeSetupStatus')
 };
@@ -171,7 +186,12 @@ function mobileSafeRender(){
 }
 function renderSourceSize(plan){
   const vertical=plan.format!=='long';
-  if(mobileSafeRender()) return vertical?{w:720,h:1280}:{w:1280,h:720};
+  if(mobileSafeRender()){
+    const mem=Number(navigator.deviceMemory||0);
+    // Use lighter temporary frames on lower-memory phones, then upscale only at export.
+    if(mem>0&&mem<=4)return vertical?{w:540,h:960}:{w:960,h:540};
+    return vertical?{w:720,h:1280}:{w:1280,h:720};
+  }
   return vertical?{w:1080,h:1920}:{w:1920,h:1080};
 }
 function finalVideoSize(plan){return plan.format!=='long'?{w:1080,h:1920}:{w:1920,h:1080};}
@@ -208,6 +228,95 @@ function resetPlaylistCache(){
   state.playlistCacheLoaded=false;
 }
 
+function youtubeTestModeEnabled(){return els.youtubeTestMode?.checked!==false;}
+function tokenScopeSet(){return new Set(String(state.accessTokenScopes||'').split(/\s+/).filter(Boolean));}
+function hasGrantedScope(scope){return tokenScopeSet().has(scope);}
+function applyYoutubeTestModeUI(){
+  const on=youtubeTestModeEnabled();
+  if(els.privacy){
+    els.privacy.disabled=on;
+    if(on)els.privacy.value='private';
+  }
+  if(els.youtubeTestModeStatus){
+    els.youtubeTestModeStatus.className=on?'notice good':'notice subtle';
+    els.youtubeTestModeStatus.textContent=on
+      ? 'Personal Test Mode is ON: connect uses read-only access first. Publish permission is requested only when you upload. API uploads are forced to Private until your YouTube API project passes its audit.'
+      : 'Test Mode is OFF. Use this only after your Google/YouTube project is ready for normal publishing.';
+  }
+  if(els.connect&&!isConnected())els.connect.textContent=on?'Connect YouTube · Test Mode':'Connect YouTube';
+}
+
+function destroyTtsWorker(){
+  const err=new Error('Background narration worker was reset.');
+  for(const pending of state.ttsWorkerPending.values()){
+    try{clearTimeout(pending.idleTimer);clearTimeout(pending.maxTimer);pending.reject(err);}catch{}
+  }
+  state.ttsWorkerPending.clear();
+  try{state.ttsWorker?.terminate?.();}catch{}
+  state.ttsWorker=null;
+  state.ttsWorkerReady=false;
+  state.ttsWorkerReadyPromise=null;
+}
+function ensureTtsWorkerInstance(){
+  if(state.ttsWorker)return state.ttsWorker;
+  if(!window.Worker)throw new Error('This browser does not support the background voice worker.');
+  const workerUrl=new URL('./tts-worker.js?v=20260927d',import.meta.url);
+  const worker=new Worker(workerUrl,{type:'module'});
+  state.ttsWorker=worker;
+  worker.onmessage=(e)=>{
+    const m=e.data||{};
+    const pending=state.ttsWorkerPending.get(m.requestId);
+    if(!pending)return;
+    clearTimeout(pending.idleTimer);
+    pending.idleTimer=setTimeout(()=>{
+      state.ttsWorkerPending.delete(m.requestId);
+      pending.reject(new Error('Free local narration stopped making progress. Please retry; the downloaded model should remain cached.'));
+      destroyTtsWorker();
+    },pending.idleMs);
+    try{pending.onMessage?.(m);}catch{}
+    if(m.type==='ready'||m.type==='done'){
+      state.ttsWorkerPending.delete(m.requestId);clearTimeout(pending.idleTimer);clearTimeout(pending.maxTimer);pending.resolve(m);
+    }else if(m.type==='error'){
+      state.ttsWorkerPending.delete(m.requestId);clearTimeout(pending.idleTimer);clearTimeout(pending.maxTimer);pending.reject(new Error(m.message||'Background narration failed.'));
+    }
+  };
+  worker.onerror=(e)=>{
+    const err=new Error(e?.message||'The background narration worker failed.');
+    for(const pending of state.ttsWorkerPending.values()){try{clearTimeout(pending.idleTimer);clearTimeout(pending.maxTimer);pending.reject(err);}catch{}}
+    state.ttsWorkerPending.clear();
+    try{worker.terminate();}catch{}
+    state.ttsWorker=null;state.ttsWorkerReady=false;state.ttsWorkerReadyPromise=null;
+  };
+  return worker;
+}
+function ttsWorkerRequest(type,payload={},onMessage=()=>{}){
+  const worker=ensureTtsWorkerInstance();
+  const requestId=`tts_${++ttsRequestSeq}`;
+  return new Promise((resolve,reject)=>{
+    const pending={resolve,reject,onMessage,idleMs:TTS_WORKER_IDLE_TIMEOUT_MS,idleTimer:null,maxTimer:null};
+    pending.idleTimer=setTimeout(()=>{state.ttsWorkerPending.delete(requestId);reject(new Error('Free local narration stopped making progress. Please retry.'));destroyTtsWorker();},TTS_WORKER_IDLE_TIMEOUT_MS);
+    pending.maxTimer=setTimeout(()=>{state.ttsWorkerPending.delete(requestId);reject(new Error('Free local narration reached the safety time limit. Please retry; cached files should make the next attempt faster.'));destroyTtsWorker();},TTS_WORKER_MAX_TIMEOUT_MS);
+    state.ttsWorkerPending.set(requestId,pending);
+    worker.postMessage({type,requestId,...payload});
+  });
+}
+async function ensureTtsWorkerReady({silent=false}={}){
+  if(state.ttsWorkerReady)return true;
+  if(state.ttsWorkerReadyPromise)return state.ttsWorkerReadyPromise;
+  const preferWebGPU=Boolean(!mobileSafeRender()&&navigator.gpu);
+  state.ttsWorkerReadyPromise=ttsWorkerRequest('init',{preferWebGPU},m=>{
+    if(silent)return;
+    if(m.type==='load')setStatus(`Loading free local AI voice in background… ${Math.max(0,Math.min(100,Math.round(Number(m.progress)||0)))}%`);
+    if(m.type==='fallback')setStatus('GPU voice setup was unavailable — using the smaller compatibility mode…','subtle');
+  }).then(m=>{state.ttsWorkerReady=true;return m;}).catch(err=>{destroyTtsWorker();throw err;}).finally(()=>{state.ttsWorkerReadyPromise=null;});
+  return state.ttsWorkerReadyPromise;
+}
+function prewarmMobileVoice(){
+  if(!mobileSafeRender()||state.settings.geminiKey||!window.Worker||state.ttsWorkerReady||state.ttsWorkerReadyPromise)return;
+  const start=()=>ensureTtsWorkerReady({silent:true}).catch(err=>console.warn('Voice prewarm skipped',err));
+  if('requestIdleCallback' in window)requestIdleCallback(start,{timeout:1200});else setTimeout(start,120);
+}
+
 function marketContext(){
   const value=els.market?.value||'premium';
   if(value==='us') return {label:'United States audience',countries:['United States'],short:'US'};
@@ -238,6 +347,9 @@ function loadSettings(){
   if(els.market) els.market.value=state.settings.marketPreset||'premium';
   if(els.revenueGoal) els.revenueGoal.value=state.settings.revenueGoal||30000;
   if(els.fastUpload) els.fastUpload.checked=state.settings.fastUpload!==false;
+  if(els.youtubeTestMode) els.youtubeTestMode.checked=state.settings.youtubeTestMode!==false;
+  if(els.fullAuto) els.fullAuto.checked=state.settings.fullAutopilot!==false;
+  if(els.rights) els.rights.checked=state.settings.rightsConfirm===true;
   els.aiStatus.className=`notice ${state.settings.geminiKey?'good':'subtle'}`;
   els.aiStatus.textContent=state.settings.geminiKey
     ? 'Gemini settings saved only in this browser. AI planning and narration will be attempted within the quota available to your key.'
@@ -275,7 +387,7 @@ function pickTopic(key){
 function localScript(topic,profile,format){
   const hook=`Most people hear this term without anyone explaining what it actually means. Here is the simple version.`;
   const concept=topic.replace(/\bexplained\b/ig,'').replace(/[.:]+$/,'').trim();
-  const short=`${hook} ${concept} is easiest to understand by separating the definition from the decision it supports. First, define the term in plain English. Next, use a simple generic example with round numbers or a common business situation. Then check the limits: fees, eligibility, provider terms, local rules or risk can change the answer for a real person. The key takeaway is to understand what the number or term measures before comparing options. Save this explanation for later, and check primary documentation before acting. ${profile.disclaimer}`;
+  const short=`${hook} ${concept} is best understood by asking what it measures, what it costs, and what can change the result. Start with the plain-English definition, then use one simple example. After that, check fees, eligibility, provider terms, exclusions, local rules, and risk. Two options with the same headline can still work very differently once the details are included. Compare the real trade-offs, not just the label. Save this for later and verify current primary information before acting. ${profile.disclaimer}`;
   const long=`${hook} Today we are breaking down ${concept} in plain English. Start with the definition: understand what the term measures, who uses it, and why it exists. Then separate the headline number from the details that can change a real outcome. A simple generic example is useful because it shows the mechanics without pretending every viewer has the same situation. Next, compare the common alternatives and the trade-offs each one is designed to handle. Pay attention to fees, exclusions, timing, eligibility, provider terms, jurisdiction and risk where they apply. A good decision framework is to ask: what does this option cost, what does it protect or provide, what can change, and which official document should I verify? Avoid choosing from a headline alone. The final takeaway is simple: understand the mechanism first, then compare the details that matter to your own situation using current primary information or qualified professional help when appropriate. ${profile.disclaimer}`;
   return {hook,script:format==='long'?long:short};
 }
@@ -317,11 +429,12 @@ async function geminiJson(prompt,key,model){
 }
 
 function plannerPrompt(key){
-  const p=NICHES[key]; const format=els.format.value==='long'?'3–5 minute 16:9 explainer':'45–60 second 9:16 YouTube Short'; const market=marketContext(); const goal=revenueGoalValue();
+  const p=NICHES[key]; const isLong=els.format.value==='long'; const format=isLong?'3–5 minute 16:9 explainer':'35–50 second 9:16 YouTube Short'; const market=marketContext(); const goal=revenueGoalValue();
+  const scriptLengthRule=isLong?'Aim for roughly 420–650 spoken words.':'Aim for roughly 85–105 spoken words before the disclaimer and never exceed 120 words before the disclaimer.';
   return `You are the strategy, research, script, SEO and thumbnail team for a faceless YouTube channel.\nCreate one ORIGINAL advertiser-friendly ${format} in the niche: ${p.label}.\nThe goal is useful, evergreen educational content with commercially valuable search intent.
 Target audience markets: ${market.countries.join(', ')}. Prefer topics, terminology and examples that are naturally relevant to these markets without stuffing country names into titles or descriptions.
 Internal planning goal: build toward ${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(goal)} per month. Never state or imply that this income is guaranteed, and do not mention the revenue goal in viewer-facing content.
-Do not promise a CPM/RPM, income, ranking, legal result, investment result, insurance approval, mortgage approval or guaranteed outcome. Do not give personalized financial or legal advice. Avoid current rates, prices, laws, statistics or product claims unless you explicitly flag them for verification.\nUse clear international English suitable for viewers in the US, Canada, UK, Australia and New Zealand.\nReturn strict JSON only with keys: topic, searchIntent, audience, chosenTitle, titleCandidates (array of 5), hook, script, description, tags (array 10-15), hashtags (array 3-5), thumbnailTexts (array 4, each 2-4 words), verificationQueries (array), riskNotes (array).\nTitle should be accurate and normally 35-70 characters. Description should summarize the value immediately and naturally include the topic. Script needs a strong first-two-second hook, frequent progression, one generic example, a concise CTA, and this disclaimer: ${p.disclaimer}`;
+Do not promise a CPM/RPM, income, ranking, legal result, investment result, insurance approval, mortgage approval or guaranteed outcome. Do not give personalized financial or legal advice. Avoid current rates, prices, laws, statistics or product claims unless you explicitly flag them for verification.\nUse clear international English suitable for viewers in the US, Canada, UK, Australia and New Zealand.\nReturn strict JSON only with keys: topic, searchIntent, audience, chosenTitle, titleCandidates (array of 5), hook, script, description, tags (array 10-15), hashtags (array 3-5), thumbnailTexts (array 4, each 2-4 words), verificationQueries (array), riskNotes (array).\nTitle should be accurate and normally 35-70 characters. Description should summarize the value immediately and naturally include the topic. ${scriptLengthRule} Script needs a strong first-two-second hook, frequent progression, one generic example, a concise CTA, and this disclaimer: ${p.disclaimer}`;
 }
 
 function normalizePlan(raw,key){
@@ -393,15 +506,19 @@ async function generatePlan(){
       try{ const raw=await geminiJson(plannerPrompt(key),apiKey,state.settings.geminiTextModel||'gemini-3.7-flash'); plan=normalizePlan(raw,key); setAgent('research','AI plan ready','good'); }
       catch(err){ console.warn(err); plan=localPlan(key); setAgent('research','Local fallback','warn'); setStatus(`Gemini was unavailable, so the $0 local planner took over: ${err.message||err}`,'subtle'); }
     } else { plan=localPlan(key); setAgent('research','$0 local plan','good'); }
-    setProgress(45); setAgent('strategy','Ready','good'); setAgent('script','Ready','good'); setAgent('seo','Ready','good'); setAgent('thumbnail','Ready','good'); renderPlan(plan); setProgress(55); setStatus(`Plan ready: ${plan.topic}`,'good'); return plan;
+    setProgress(45); setAgent('strategy','Ready','good'); setAgent('script','Ready','good'); setAgent('seo','Ready','good'); setAgent('thumbnail','Ready','good'); renderPlan(plan); setProgress(55); setStatus(`Plan ready: ${plan.topic}`,'good'); prewarmMobileVoice(); return plan;
   } finally { els.generate.disabled=false; }
 }
 
 function splitSentences(text){ return clean(text).split(/(?<=[.!?])\s+/).map(clean).filter(Boolean); }
 function sceneTexts(plan){
-  const sentences=splitSentences(plan.script); const target=plan.format==='long'?Math.min(14,Math.max(8,Math.ceil(sentences.length/2))):Math.min(8,Math.max(5,sentences.length));
-  const groups=Array.from({length:target},()=>[]); sentences.forEach((s,i)=>groups[i%target].push(s));
-  return groups.map(x=>x.join(' ')).filter(Boolean);
+  const sentences=splitSentences(plan.script);
+  if(!sentences.length)return [plan.script];
+  const target=plan.format==='long'?Math.min(12,Math.max(7,Math.ceil(sentences.length/2))):Math.min(6,Math.max(4,Math.ceil(sentences.length/2)));
+  const size=Math.max(1,Math.ceil(sentences.length/target));
+  const groups=[];
+  for(let i=0;i<sentences.length;i+=size)groups.push(sentences.slice(i,i+size).join(' '));
+  return groups.filter(Boolean);
 }
 function wrapCanvasText(ctx,text,maxWidth,maxLines=5){
   const words=clean(text).split(/\s+/).filter(Boolean),lines=[];let line='';
@@ -419,7 +536,7 @@ async function makeScenePng(text,index,total,plan){
   const pad=(vertical?52:72)*scale;ctx.fillStyle='rgba(255,255,255,.11)';ctx.fillRect(pad,pad,w-pad*2,7*scale);ctx.font=`800 ${(vertical?23:22)*scale}px Arial`;ctx.fillStyle='rgba(255,255,255,.78)';ctx.fillText(plan.nicheLabel.toUpperCase(),pad,pad+46*scale);
   const headline=index===0?plan.hook:text;ctx.font=`900 ${(vertical?52:56)*scale}px Arial`;ctx.fillStyle='#fff';ctx.strokeStyle='rgba(0,0,0,.85)';ctx.lineWidth=8*scale;ctx.lineJoin='round';const lines=wrapCanvasText(ctx,headline,w-pad*2,vertical?7:5);let y=(vertical?310:220)*scale;const lh=(vertical?64:68)*scale;for(const line of lines){ctx.strokeText(line,pad,y,w-pad*2);ctx.fillText(line,pad,y,w-pad*2);y+=lh;}
   ctx.font=`700 ${(vertical?21:19)*scale}px Arial`;ctx.fillStyle='rgba(255,255,255,.72)';ctx.fillText(`ORIGINAL EXPLAINER • ${index+1}/${total}`,pad,h-pad-24*scale);
-  return await new Promise(resolve=>c.toBlob(resolve,mobileSafeRender()?'image/jpeg':'image/png',mobileSafeRender()?.88:undefined));
+  return await new Promise(resolve=>c.toBlob(resolve,mobileSafeRender()?'image/jpeg':'image/png',mobileSafeRender()?.82:undefined));
 }
 
 function b64Bytes(s){const bin=atob(s),out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out;}
@@ -464,26 +581,22 @@ function floatSamplesToWav(samples,sampleRate=24000){
 }
 async function mobileWorkerTts(text){
   if(!window.Worker)throw new Error('This browser does not support the background voice worker.');
-  const workerUrl=new URL('./tts-worker.js',import.meta.url);
-  return await new Promise((resolve,reject)=>{
-    const worker=new Worker(workerUrl,{type:'module'});
-    let settled=false;
-    const finish=(fn,value)=>{if(settled)return;settled=true;clearTimeout(timer);try{worker.terminate();}catch{}fn(value);};
-    const timer=setTimeout(()=>finish(reject,new Error('Free local narration took too long and was stopped to protect the browser from freezing.')),TTS_WORKER_TIMEOUT_MS);
-    worker.onerror=(e)=>finish(reject,new Error(e?.message||'The background narration worker failed.'));
-    worker.onmessage=(e)=>{
-      const m=e.data||{};
-      if(m.type==='load'){setStatus(`Loading free local AI voice in background… ${Math.max(0,Math.min(100,Math.round(Number(m.progress)||0)))}%`);return;}
-      if(m.type==='chunk'){setStatus(`Generating narration in background… ${m.index}/${m.total}`);return;}
-      if(m.type==='error'){finish(reject,new Error(m.message||'Background narration failed.'));return;}
-      if(m.type==='done'){
-        const buf=m.buffer;
-        if(!(buf instanceof ArrayBuffer)||buf.byteLength<45){finish(reject,new Error('Background narration returned invalid audio.'));return;}
-        finish(resolve,new Blob([buf],{type:'audio/wav'}));
-      }
-    };
-    worker.postMessage({type:'generate',text:clean(text),voice:localVoiceName(),maxChars:220});
-  });
+  setStatus(state.ttsWorkerReady?'Generating free local narration…':'Finishing free local voice setup…');
+  await ensureTtsWorkerReady({silent:false});
+  try{
+    const maxChars=text.length>1800?280:360;
+    const m=await ttsWorkerRequest('generate',{text:clean(text),voice:localVoiceName(),maxChars,speed:1.04},msg=>{
+      if(msg.type==='chunk')setStatus(`Generating narration in background… ${msg.index}/${msg.total}`);
+      if(msg.type==='load')setStatus(`Loading free local AI voice… ${Math.max(0,Math.min(100,Math.round(Number(msg.progress)||0)))}%`);
+    });
+    const buf=m.buffer;
+    if(!(buf instanceof ArrayBuffer)||buf.byteLength<45)throw new Error('Background narration returned invalid audio.');
+    return new Blob([buf],{type:'audio/wav'});
+  } finally {
+    // Release the TTS model before FFmpeg starts so both large WASM workloads never share RAM.
+    destroyTtsWorker();
+    await sleep(80);
+  }
 }
 
 async function localKokoroTts(text){
@@ -505,11 +618,11 @@ async function localKokoroTts(text){
       }
     });
   }
-  const pieces=splitForLocalTts(text,260);
+  const pieces=splitForLocalTts(text,340);
   const chunks=[]; let sampleRate=24000; let total=0;
   for(let i=0;i<pieces.length;i++){
     setStatus(`Generating free local narration… ${i+1}/${pieces.length}`);
-    const raw=await state.kokoro.generate(pieces[i],{voice:localVoiceName(),speed:1});
+    const raw=await state.kokoro.generate(pieces[i],{voice:localVoiceName(),speed:1.04});
     const data=raw?.data||raw?.audio;
     if(!(data instanceof Float32Array)||!data.length)throw new Error('Local AI voice returned no audio samples.');
     sampleRate=Number(raw?.sampling_rate||raw?.samplingRate||sampleRate)||24000;
@@ -535,6 +648,7 @@ async function ensureFfmpeg(){
       toBlobURL(`${base}/ffmpeg-core.wasm`,'application/wasm')
     ]);
     await withTimeout(ff.load({coreURL,wasmURL,classWorkerURL}),FFMPEG_LOAD_TIMEOUT_MS,'Video renderer loading');
+    try{ff.on('progress',({progress})=>{const p=Number(progress||0);if(p>0&&p<=1){setProgress(77+Math.round(p*20));setStatus(`Encoding Full HD 1080p… ${Math.round(p*100)}%`);}});}catch{}
     state.ffmpeg=ff;
     return ff;
   }catch(err){
@@ -601,8 +715,10 @@ async function renderVideo(){
     filters.push('fps=24','format=yuv420p');
 
     if(turboEnabled()){
-      args.push('-vf',filters.join(','),'-c:v','libx264','-preset',mobile?'ultrafast':'veryfast','-tune','stillimage','-crf',mobile?'28':'27','-maxrate',mobile?'3500k':'4000k','-bufsize',mobile?'7000k':'8000k');
-      args.push('-c:a','aac','-b:a','128k','-af','volume=1.35','-shortest');
+      const turboRate=plan.format==='long'?(mobile?'3200k':'3800k'):(mobile?'2800k':'3400k');
+      const turboBuf=plan.format==='long'?(mobile?'6400k':'7600k'):(mobile?'5600k':'6800k');
+      args.push('-vf',filters.join(','),'-c:v','libx264','-preset',mobile?'ultrafast':'veryfast','-tune','stillimage','-crf',mobile?'29':'28','-maxrate',turboRate,'-bufsize',turboBuf);
+      args.push('-c:a','aac','-b:a','96k','-af','volume=1.35','-shortest');
     }else{
       args.push('-vf',filters.join(','),'-c:v','libx264','-preset',mobile?'ultrafast':'veryfast','-crf',mobile?'24':'22','-maxrate',mobile?'6000k':'8000k','-bufsize',mobile?'12000k':'16000k');
       args.push('-c:a','aac','-b:a','160k','-af','volume=1.35','-shortest');
@@ -639,37 +755,47 @@ function cleanupUrls(){for(const u of state.renderUrls)URL.revokeObjectURL(u);st
 function showPreview(){cleanupUrls();const v=URL.createObjectURL(state.videoBlob),t=URL.createObjectURL(state.thumbnailBlob);state.renderUrls.push(v,t);els.preview.src=v;els.preview.classList.remove('hidden');els.previewEmpty.classList.add('hidden');els.downloadVideo.href=v;els.downloadVideo.download=state.videoFile.name;els.downloadVideo.classList.remove('hidden');els.downloadThumbnail.href=t;els.downloadThumbnail.download=`${slug(state.plan.chosenTitle)}-thumbnail.jpg`;els.downloadThumbnail.classList.remove('hidden');els.uploadButton.disabled=!isConnected();}
 
 async function createCurrentVideo(){
-  if(!state.plan)await generatePlan();if(!state.plan)return;els.createVideo.disabled=true;try{setStatus('Creating your original video. Keep this tab open…');await renderVideo();setStatus('Video ready. Preview it, then upload — or enable FULL AUTOPILOT for future runs.','good');if(els.fullAuto.checked)await autoPublishCurrent();}catch(err){console.error(err);setStatus(err.message||String(err),'bad');setAgent('production','Needs attention','warn');}finally{els.createVideo.disabled=false;await releaseWakeLock();}
+  if(!state.plan)await generatePlan();if(!state.plan)return;els.createVideo.disabled=true;try{setStatus('Creating your original video. Keep this tab open…');await renderVideo();if(els.fullAuto.checked){setStatus('Video ready — Hands-Free Autopilot is uploading it now…','good');await autoPublishCurrent();}else{setStatus('Video ready. Preview it, then upload manually or turn Hands-Free Autopilot ON.','good');}}catch(err){console.error(err);setStatus(err.message||String(err),'bad');setAgent('production','Needs attention','warn');}finally{els.createVideo.disabled=false;await releaseWakeLock();}
 }
 
 async function runBatch(){
-  const count=clamp(Number(els.batch.value)||1,1,4);els.runBatch.disabled=true;try{for(let i=0;i<count;i++){setStatus(`Batch ${i+1}/${count}: creating strategy…`);state.plan=null;await generatePlan();setStatus(`Batch ${i+1}/${count}: rendering video…`);await renderVideo();if(els.fullAuto.checked){await autoPublishCurrent();}else if(count>1){setStatus(`Batch paused after video ${i+1}. FULL AUTOPILOT is OFF, so each generated video needs preview before another one replaces it.`,'good');break;}}if(els.fullAuto.checked)setStatus(`Batch complete: ${count} video${count===1?'':'s'} processed.`,'good');}catch(err){console.error(err);setStatus(err.message||String(err),'bad');}finally{els.runBatch.disabled=false;await releaseWakeLock();}
+  const count=clamp(Number(els.batch.value)||1,1,4);els.runBatch.disabled=true;try{for(let i=0;i<count;i++){setStatus(`Batch ${i+1}/${count}: creating strategy…`);state.plan=null;await generatePlan();setStatus(`Batch ${i+1}/${count}: rendering video…`);await renderVideo();if(els.fullAuto.checked){await autoPublishCurrent();}else if(count>1){setStatus(`Batch paused after video ${i+1}. FULL AUTOPILOT is OFF, so each generated video needs preview before another one replaces it.`,'good');break;}}if(els.fullAuto.checked)setStatus(`Hands-Free batch complete: ${count} video${count===1?'':'s'} created and sent through the upload workflow.`,'good');}catch(err){console.error(err);setStatus(err.message||String(err),'bad');}finally{els.runBatch.disabled=false;await releaseWakeLock();}
 }
 
-function saveAi(){state.settings.geminiKey=els.geminiKey.value.trim();state.settings.geminiTextModel=els.geminiTextModel.value.trim()||'gemini-3.7-flash';state.settings.geminiTtsModel=els.geminiTtsModel.value.trim()||'gemini-3.1-flash-tts-preview';saveSettings();loadSettings();}
+function saveAi(){state.settings.geminiKey=els.geminiKey.value.trim();state.settings.geminiTextModel=els.geminiTextModel.value.trim()||'gemini-3.7-flash';state.settings.geminiTtsModel=els.geminiTtsModel.value.trim()||'gemini-3.1-flash-tts-preview';if(state.settings.geminiKey)destroyTtsWorker();saveSettings();loadSettings();}
 function saveYoutube(){const id=els.googleClientId.value.trim();if(id&&!id.endsWith('.apps.googleusercontent.com')){els.youtubeSetupStatus.className='notice bad';els.youtubeSetupStatus.textContent='That does not look like a Google OAuth Client ID. It should end in .apps.googleusercontent.com.';return;}state.settings.googleClientId=id;saveSettings();loadSettings();}
 
 async function waitGoogle(timeout=10000){const start=Date.now();while(!window.google?.accounts?.oauth2){if(Date.now()-start>timeout)throw new Error('Google sign-in library did not load. Check the connection or content blockers, then refresh.');await sleep(150);}}
-async function requestToken(){
+async function requestToken(scopes=READ_SCOPES,{forceConsent=false}={}){
   if(!state.settings.googleClientId)throw new Error('Add your Google OAuth Client ID in Setup first.');
   await waitGoogle();
   return await withTimeout(new Promise((resolve,reject)=>{
     const client=google.accounts.oauth2.initTokenClient({
       client_id:state.settings.googleClientId,
-      scope:SCOPES,
+      scope:scopes,
+      include_granted_scopes:true,
       callback:r=>{
         if(r.error)return reject(new Error(r.error_description||r.error));
         state.accessToken=r.access_token;
+        state.accessTokenScopes=clean(r.scope||scopes);
         state.expiresAt=Date.now()+Math.max(60,Number(r.expires_in||3600)-60)*1000;
         resolve(r.access_token);
       },
       error_callback:e=>reject(new Error(e?.message||e?.type||'Google sign-in failed.'))
     });
-    client.requestAccessToken({prompt:state.accessToken?'':'consent'});
+    client.requestAccessToken({prompt:forceConsent||!state.accessToken?'consent':''});
   }),60000,'Google sign-in');
 }
-async function token(){if(state.accessToken&&Date.now()<state.expiresAt)return state.accessToken;return requestToken();}
 function isConnected(){return Boolean(state.accessToken&&Date.now()<state.expiresAt);}
+async function ensureReadToken(){
+  if(isConnected())return state.accessToken;
+  return requestToken(READ_SCOPES);
+}
+async function ensurePublishToken(){
+  if(isConnected()&&hasGrantedScope(PUBLISH_SCOPE))return state.accessToken;
+  return requestToken(PUBLISH_SCOPES,{forceConsent:true});
+}
+async function token(){return ensureReadToken();}
 function ytUrl(path,params={}){const u=new URL(`https://www.googleapis.com/youtube/v3/${path}`);for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,String(v));return u.toString();}
 async function apiJson(url,options={}){const h=new Headers(options.headers||{});h.set('Authorization',`Bearer ${await token()}`);const r=await fetchWithTimeout(url,{...options,headers:h});const tx=await r.text();let d={};try{d=tx?JSON.parse(tx):{};}catch{d={raw:tx};}if(!r.ok)throw new Error(d?.error?.message||d?.raw||`${r.status} ${r.statusText}`);return d;}
 
@@ -678,9 +804,22 @@ function setConnectedUI(connected,title=''){
   if(connected){els.youtubeBanner.textContent=`✓ YouTube connected${title?` — ${title}`:''}`;els.youtubeBanner.style.background='#0e2419';els.youtubeBanner.style.color='#9aeabc';els.youtubeStatus.className='notice good';els.youtubeStatus.textContent=`Connected${title?` to ${title}`:''}.`;}else{els.youtubeBanner.textContent='● YouTube not connected';els.youtubeBanner.style.background='#141922';els.youtubeBanner.style.color='#c4cada';els.youtubeStatus.className='notice subtle';els.youtubeStatus.textContent='YouTube is not connected yet.';}updatePublishGuard();
 }
 async function connectYoutube(){
-  els.connect.disabled=true;els.connect.textContent='Connecting…';try{await requestToken();resetPlaylistCache();await refreshChannel();setConnectedUI(true,state.channel?.snippet?.title||'your channel');await refreshAnalytics();}catch(err){console.error(err);setConnectedUI(false);els.youtubeStatus.className='notice bad';els.youtubeStatus.textContent=err.message||String(err);}finally{els.connect.disabled=false;els.connect.textContent='Connect YouTube';}
+  els.connect.disabled=true;els.connect.textContent='Connecting…';
+  try{
+    await ensureReadToken();
+    resetPlaylistCache();
+    await refreshChannel();
+    setConnectedUI(true,state.channel?.snippet?.title||'your channel');
+    els.youtubeStatus.textContent=`Connected to ${state.channel?.snippet?.title||'your channel'}${youtubeTestModeEnabled()?' in Personal Test Mode. Upload permission will be requested only when you upload.':'.'}`;
+    await refreshAnalytics();
+  }catch(err){
+    console.error(err);setConnectedUI(false);els.youtubeStatus.className='notice bad';els.youtubeStatus.textContent=err.message||String(err);
+  }finally{
+    els.connect.disabled=false;
+    if(!isConnected())els.connect.textContent=youtubeTestModeEnabled()?'Connect YouTube · Test Mode':'Connect YouTube';
+  }
 }
-function disconnectYoutube(){const old=state.accessToken;state.accessToken='';state.expiresAt=0;state.channel=null;state.recentVideos=[];state.analytics=null;resetPlaylistCache();setConnectedUI(false);if(old&&window.google?.accounts?.oauth2?.revoke){try{google.accounts.oauth2.revoke(old,()=>{});}catch{}}}
+function disconnectYoutube(){const old=state.accessToken;state.accessToken='';state.accessTokenScopes='';state.expiresAt=0;state.channel=null;state.recentVideos=[];state.analytics=null;resetPlaylistCache();setConnectedUI(false);applyYoutubeTestModeUI();if(old&&window.google?.accounts?.oauth2?.revoke){try{google.accounts.oauth2.revoke(old,()=>{});}catch{}}}
 async function refreshChannel(){const data=await apiJson(ytUrl('channels',{part:'snippet,contentDetails,statistics',mine:'true'}));state.channel=data.items?.[0]||null;if(!state.channel)throw new Error('No YouTube channel was returned for this Google account.');return state.channel;}
 
 async function recentUploads(limit=12){
@@ -745,7 +884,7 @@ function autoPlaylistSpecs(plan=state.plan){
   return specs;
 }
 async function ensureAllAutomaticPlaylists(){
-  if(!isConnected())await requestToken();
+  await ensurePublishToken();
   const specs=[...Object.values(AUTO_PLAYLISTS),...Object.values(FORMAT_PLAYLISTS)];
   const made=[];
   for(let i=0;i<specs.length;i++){
@@ -758,11 +897,11 @@ async function ensureAllAutomaticPlaylists(){
 async function addPlaylist(videoId,playlistId){if(!playlistId)return;await apiJson(ytUrl('playlistItems',{part:'snippet'}),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({snippet:{playlistId,resourceId:{kind:'youtube#video',videoId}}})});}
 async function uploadYoutube(){
   if(navigator.onLine===false)throw new Error('Your device is offline. Reconnect to the internet before uploading.');
-  pullEditsIntoPlan();if(!state.videoBlob)throw new Error('Generate a video first.');if(!state.plan)throw new Error('No content package is ready.');if(!els.rights.checked)throw new Error('Confirm the factual / publishing review before uploading.');if(!isConnected())await requestToken();const title=clean(state.plan.chosenTitle);if(!title)throw new Error('A YouTube title is required.');
+  pullEditsIntoPlan();if(!state.videoBlob)throw new Error('Generate a video first.');if(!state.plan)throw new Error('No content package is ready.');if(!els.rights.checked)throw new Error('Confirm the factual / publishing review before uploading.');await ensurePublishToken();const title=clean(state.plan.chosenTitle);if(!title)throw new Error('A YouTube title is required.');
   await keepScreenAwake();
   els.uploadButton.disabled=true;els.uploadProgress.style.width='2%';setAgent('publishing','Uploading','working');
   try{
-    const status={privacyStatus:els.privacy.value,selfDeclaredMadeForKids:els.madeForKids.value==='true'};const publishAt=els.schedule.value?new Date(els.schedule.value):null;if(publishAt&&Number.isFinite(publishAt.getTime())&&publishAt>Date.now()){status.privacyStatus='private';status.publishAt=publishAt.toISOString();}
+    const status={privacyStatus:youtubeTestModeEnabled()?'private':els.privacy.value,selfDeclaredMadeForKids:els.madeForKids.value==='true'};const publishAt=els.schedule.value?new Date(els.schedule.value):null;if(!youtubeTestModeEnabled()&&publishAt&&Number.isFinite(publishAt.getTime())&&publishAt>Date.now()){status.privacyStatus='private';status.publishAt=publishAt.toISOString();}
     const metadata={snippet:{title:title.slice(0,100),description:state.plan.description.slice(0,5000),categoryId:state.plan.categoryId||'27',defaultLanguage:'en',tags:state.plan.tags.slice(0,15)},status};const boundary=`clipfree_${Date.now()}`;const body=multipart(metadata,state.videoBlob,'video/mp4',boundary);const u=new URL('https://www.googleapis.com/upload/youtube/v3/videos');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet,status');u.searchParams.set('notifySubscribers','false');
     const started=performance.now();let lastT=started,lastLoaded=0;
     els.uploadResult.textContent=`Uploading ${mb(state.videoBlob.size)} MB${turboEnabled()?' · TURBO':''}…`;
@@ -798,7 +937,7 @@ async function uploadYoutube(){
     await releaseWakeLock();
   }
 }
-async function autoPublishCurrent(){if(!els.rights.checked){setStatus('Video created, but FULL AUTOPILOT did not upload because the publishing confirmation is not checked.','good');return;}if(!isConnected()){setStatus('Video created. Connect YouTube before FULL AUTOPILOT can publish.','good');return;}await uploadYoutube();}
+async function autoPublishCurrent(){if(!els.rights.checked){setStatus('Video created, but Hands-Free Autopilot is waiting for your one-time publishing confirmation. Check it once and ClipFree will remember it on this device.','good');return;}await uploadYoutube();}
 
 function updatePublishGuard(){
   const checks=[Boolean(state.videoBlob),Boolean(state.plan?.disclaimer),Boolean(state.plan&&seoScore(state.plan)>=70),Boolean(state.thumbnailBlob),Boolean(els.rights.checked),isConnected()];const labels=['Original generated visuals','Accurate educational framing','SEO package complete','Thumbnail ready','Rights / factual review confirmed','YouTube connected'];const rows=els.publishGuard.querySelectorAll('div');rows.forEach((r,i)=>{r.className=checks[i]?'ok':'';r.innerHTML=`<span>${checks[i]?'✓':'○'}</span> ${labels[i]}`;});
@@ -812,10 +951,25 @@ els.createPlaylists?.addEventListener('click',async()=>{els.createPlaylists.disa
 [els.topic,els.title,els.description,els.tags,els.hashtags,els.thumbText,els.script].forEach(el=>el.addEventListener('input',renderScore));els.rights.addEventListener('change',updatePublishGuard);
 [els.market,els.revenueGoal].filter(Boolean).forEach(el=>el.addEventListener('change',()=>{state.settings.marketPreset=els.market?.value||'premium';state.settings.revenueGoal=revenueGoalValue();saveSettings();renderGrowthTargets();renderIdeas();}));
 els.fastUpload?.addEventListener('change',()=>{state.settings.fastUpload=els.fastUpload.checked;saveSettings();});
+els.youtubeTestMode?.addEventListener('change',()=>{
+  state.settings.youtubeTestMode=els.youtubeTestMode.checked;
+  saveSettings();
+  applyYoutubeTestModeUI();
+});
+els.fullAuto?.addEventListener('change',()=>{
+  state.settings.fullAutopilot=els.fullAuto.checked;
+  saveSettings();
+});
+els.rights?.addEventListener('change',()=>{
+  state.settings.rightsConfirm=els.rights.checked;
+  saveSettings();
+  updatePublishGuard();
+});
 window.addEventListener('beforeunload',()=>{
   cleanupUrls();
   try{state.ffmpeg?.terminate?.();}catch{}
+  try{destroyTtsWorker();}catch{}
   try{wakeLockSentinel?.release?.();}catch{}
 });
 
-loadSettings();resetAgents();setConnectedUI(false);renderGrowthTargets();renderIdeas();updatePublishGuard();
+loadSettings();resetAgents();setConnectedUI(false);applyYoutubeTestModeUI();renderGrowthTargets();renderIdeas();updatePublishGuard();
