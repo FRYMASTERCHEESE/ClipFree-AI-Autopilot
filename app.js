@@ -162,7 +162,7 @@ const els = {
   generate: $('generatePlan'), createVideo: $('createVideo'), runBatch: $('runBatch'), status: $('autopilotStatus'), progress: $('autopilotProgress'),
   topic: $('topicOutput'), title: $('titleOutput'), description: $('descriptionOutput'), tags: $('tagsOutput'), hashtags: $('hashtagsOutput'), thumbText: $('thumbnailOutput'), script: $('scriptOutput'),
   variants: $('titleVariants'), quality: $('qualityChecks'), score: $('seoScore'), preview: $('videoPreview'), previewEmpty: $('previewEmpty'), downloadVideo: $('downloadVideo'), downloadThumbnail: $('downloadThumbnail'),
-  connect: $('connectYoutube'), disconnect: $('disconnectYoutube'), youtubeStatus: $('youtubeStatus'), youtubeBanner: $('youtubeBanner'),
+  connect: $('connectYoutube'), disconnect: $('disconnectYoutube'), connectTop: $('connectYoutubeTop'), disconnectTop: $('disconnectYoutubeTop'), youtubeStatus: $('youtubeStatus'), youtubeBanner: $('youtubeBanner'),
   privacy: $('privacySelect'), schedule: $('scheduleAt'), youtubeTestMode: $('youtubeTestMode'), youtubeTestModeStatus: $('youtubeTestModeStatus'), fastUpload: $('fastUpload'), autoPlaylist: $('autoPlaylist'), playlistName: $('playlistName'), createPlaylists: $('createPlaylists'), playlistStatus: $('playlistStatus'), madeForKids: $('madeForKids'), uploadCaptions: $('uploadCaptions'), uploadThumbnail: $('uploadThumbnail'), uploadButton: $('uploadYoutube'), uploadProgress: $('uploadProgress'), uploadResult: $('uploadResult'), publishGuard: $('publishGuard'),
   refreshAnalytics: $('refreshAnalytics'), metricViews: $('metricViews'), metricWatch: $('metricWatch'), metricSubs: $('metricSubs'), metricChannel: $('metricChannel'), metricGoal: $('metricGoal'), metricMarkets: $('metricMarkets'), recentVideos: $('recentVideos'), nextIdeas: $('nextIdeas'),
   geminiKey: $('geminiApiKey'), geminiTextModel: $('geminiTextModel'), geminiTtsModel: $('geminiTtsModel'), saveAi: $('saveAi'), aiStatus: $('aiStatus'), googleClientId: $('googleClientId'), saveYoutube: $('saveYoutube'), youtubeSetupStatus: $('youtubeSetupStatus')
@@ -229,6 +229,15 @@ function resetPlaylistCache(){
 }
 
 function youtubeTestModeEnabled(){return els.youtubeTestMode?.checked!==false;}
+function youtubeConnectButtons(){
+  return [els.connect,els.connectTop].filter(Boolean);
+}
+function youtubeDisconnectButtons(){
+  return [els.disconnect,els.disconnectTop].filter(Boolean);
+}
+function setConnectButtonText(text){
+  for(const btn of youtubeConnectButtons())btn.textContent=text;
+}
 function tokenScopeSet(){return new Set(String(state.accessTokenScopes||'').split(/\s+/).filter(Boolean));}
 function hasGrantedScope(scope){return tokenScopeSet().has(scope);}
 function applyYoutubeTestModeUI(){
@@ -243,7 +252,7 @@ function applyYoutubeTestModeUI(){
       ? 'Personal Test Mode is ON: connect uses read-only access first. Publish permission is requested only when you upload. API uploads are forced to Private until your YouTube API project passes its audit.'
       : 'Test Mode is OFF. Use this only after your Google/YouTube project is ready for normal publishing.';
   }
-  if(els.connect&&!isConnected())els.connect.textContent=on?'Connect YouTube · Test Mode':'Connect YouTube';
+  if(!isConnected())setConnectButtonText(on?'Connect YouTube · Test Mode':'Connect YouTube');
 }
 
 function destroyTtsWorker(){
@@ -800,11 +809,33 @@ function ytUrl(path,params={}){const u=new URL(`https://www.googleapis.com/youtu
 async function apiJson(url,options={}){const h=new Headers(options.headers||{});h.set('Authorization',`Bearer ${await token()}`);const r=await fetchWithTimeout(url,{...options,headers:h});const tx=await r.text();let d={};try{d=tx?JSON.parse(tx):{};}catch{d={raw:tx};}if(!r.ok)throw new Error(d?.error?.message||d?.raw||`${r.status} ${r.statusText}`);return d;}
 
 function setConnectedUI(connected,title=''){
-  els.connect.classList.toggle('hidden',connected);els.disconnect.classList.toggle('hidden',!connected);els.refreshAnalytics.disabled=!connected;els.uploadButton.disabled=!(connected&&state.videoBlob);
-  if(connected){els.youtubeBanner.textContent=`✓ YouTube connected${title?` — ${title}`:''}`;els.youtubeBanner.style.background='#0e2419';els.youtubeBanner.style.color='#9aeabc';els.youtubeStatus.className='notice good';els.youtubeStatus.textContent=`Connected${title?` to ${title}`:''}.`;}else{els.youtubeBanner.textContent='● YouTube not connected';els.youtubeBanner.style.background='#141922';els.youtubeBanner.style.color='#c4cada';els.youtubeStatus.className='notice subtle';els.youtubeStatus.textContent='YouTube is not connected yet.';}updatePublishGuard();
+  for(const btn of youtubeConnectButtons())btn.classList.toggle('hidden',connected);
+  for(const btn of youtubeDisconnectButtons())btn.classList.toggle('hidden',!connected);
+  els.refreshAnalytics.disabled=!connected;
+  els.uploadButton.disabled=!(connected&&state.videoBlob);
+  if(connected){
+    els.youtubeBanner.textContent=`✓ YouTube connected${title?` — ${title}`:''}`;
+    els.youtubeBanner.style.color='#9aeabc';
+    els.youtubeStatus.className='notice good';
+    els.youtubeStatus.textContent=`Connected${title?` to ${title}`:''}.`;
+  }else{
+    els.youtubeBanner.textContent='● YouTube not connected';
+    els.youtubeBanner.style.color='#c4cada';
+    els.youtubeStatus.className='notice subtle';
+    els.youtubeStatus.textContent='YouTube is not connected yet.';
+    setConnectButtonText(youtubeTestModeEnabled()?'Connect YouTube · Test Mode':'Connect YouTube');
+  }
+  updatePublishGuard();
 }
 async function connectYoutube(){
-  els.connect.disabled=true;els.connect.textContent='Connecting…';
+  if(!state.settings.googleClientId){
+    els.youtubeSetupStatus.className='notice bad';
+    els.youtubeSetupStatus.textContent='Paste your Google OAuth Client ID here and tap Save YouTube settings first.';
+    document.querySelector('#setup')?.scrollIntoView({behavior:'smooth',block:'start'});
+    return;
+  }
+  for(const btn of youtubeConnectButtons())btn.disabled=true;
+  setConnectButtonText('Connecting…');
   try{
     await ensureReadToken();
     resetPlaylistCache();
@@ -813,10 +844,13 @@ async function connectYoutube(){
     els.youtubeStatus.textContent=`Connected to ${state.channel?.snippet?.title||'your channel'}${youtubeTestModeEnabled()?' in Personal Test Mode. Upload permission will be requested only when you upload.':'.'}`;
     await refreshAnalytics();
   }catch(err){
-    console.error(err);setConnectedUI(false);els.youtubeStatus.className='notice bad';els.youtubeStatus.textContent=err.message||String(err);
+    console.error(err);
+    setConnectedUI(false);
+    els.youtubeStatus.className='notice bad';
+    els.youtubeStatus.textContent=err.message||String(err);
   }finally{
-    els.connect.disabled=false;
-    if(!isConnected())els.connect.textContent=youtubeTestModeEnabled()?'Connect YouTube · Test Mode':'Connect YouTube';
+    for(const btn of youtubeConnectButtons())btn.disabled=false;
+    if(!isConnected())setConnectButtonText(youtubeTestModeEnabled()?'Connect YouTube · Test Mode':'Connect YouTube');
   }
 }
 function disconnectYoutube(){const old=state.accessToken;state.accessToken='';state.accessTokenScopes='';state.expiresAt=0;state.channel=null;state.recentVideos=[];state.analytics=null;resetPlaylistCache();setConnectedUI(false);applyYoutubeTestModeUI();if(old&&window.google?.accounts?.oauth2?.revoke){try{google.accounts.oauth2.revoke(old,()=>{});}catch{}}}
@@ -946,7 +980,7 @@ function updatePublishGuard(){
 els.generate.addEventListener('click',()=>generatePlan().catch(err=>setStatus(err.message||String(err),'bad')));
 els.createVideo.addEventListener('click',()=>createCurrentVideo());
 els.runBatch.addEventListener('click',()=>runBatch());
-els.saveAi.addEventListener('click',saveAi);els.saveYoutube.addEventListener('click',saveYoutube);els.connect.addEventListener('click',connectYoutube);els.disconnect.addEventListener('click',disconnectYoutube);els.refreshAnalytics.addEventListener('click',refreshAnalytics);els.uploadButton.addEventListener('click',()=>uploadYoutube().catch(err=>console.error(err)));
+els.saveAi.addEventListener('click',saveAi);els.saveYoutube.addEventListener('click',saveYoutube);els.connect.addEventListener('click',connectYoutube);els.connectTop?.addEventListener('click',connectYoutube);els.disconnect.addEventListener('click',disconnectYoutube);els.disconnectTop?.addEventListener('click',disconnectYoutube);els.refreshAnalytics.addEventListener('click',refreshAnalytics);els.uploadButton.addEventListener('click',()=>uploadYoutube().catch(err=>console.error(err)));
 els.createPlaylists?.addEventListener('click',async()=>{els.createPlaylists.disabled=true;try{await ensureAllAutomaticPlaylists();}catch(err){if(els.playlistStatus){els.playlistStatus.className='notice bad';els.playlistStatus.textContent=err.message||String(err);}}finally{els.createPlaylists.disabled=false;}});
 [els.topic,els.title,els.description,els.tags,els.hashtags,els.thumbText,els.script].forEach(el=>el.addEventListener('input',renderScore));els.rights.addEventListener('change',updatePublishGuard);
 [els.market,els.revenueGoal].filter(Boolean).forEach(el=>el.addEventListener('change',()=>{state.settings.marketPreset=els.market?.value||'premium';state.settings.revenueGoal=revenueGoalValue();saveSettings();renderGrowthTargets();renderIdeas();}));

@@ -29,6 +29,16 @@
     "description":"Browser-based YouTube automation for original educational videos, SEO packaging, publishing and analytics."
   }
   </script>
+  <style>
+    .youtube-quick-bar{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:10px 14px;position:sticky;top:72px;z-index:30}
+    .youtube-quick-actions{display:flex;gap:8px;align-items:center}
+    .youtube-top-connect{padding:9px 14px!important;min-height:42px;font-size:14px!important;white-space:nowrap}
+    @media(max-width:720px){
+      .youtube-quick-bar{top:68px;justify-content:space-between;padding:9px 12px}
+      .youtube-quick-bar>span{font-size:14px}
+      .youtube-top-connect{padding:8px 12px!important;font-size:13px!important}
+    }
+  </style>
 </head>
 <body>
   <header class="topbar">
@@ -42,7 +52,13 @@
     </nav>
   </header>
 
-  <div id="youtubeBanner" class="connection-banner">● YouTube not connected</div>
+  <div class="connection-banner youtube-quick-bar">
+    <span id="youtubeBanner">● YouTube not connected</span>
+    <div class="youtube-quick-actions">
+      <button id="connectYoutubeTop" class="primary youtube-top-connect" type="button">Connect YouTube · Test Mode</button>
+      <button id="disconnectYoutubeTop" class="secondary hidden youtube-top-connect" type="button">Disconnect</button>
+    </div>
+  </div>
 
   <main id="top">
     <section class="hero">
@@ -320,6 +336,6 @@
     <a href="privacy.html">Privacy Policy</a> • <a href="terms.html">Terms</a> • <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms</a> • <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>
   </footer>
 
-  <script type="module" src="app.js?v=20260927f"></script>
+  <script type="module" src="app.js?v=20260927g"></script>
 </body>
 </html>
