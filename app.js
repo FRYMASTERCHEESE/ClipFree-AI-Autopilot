@@ -228,10 +228,9 @@ function mobileSafeRender(){
 function renderSourceSize(plan){
   const vertical=plan.format!=='long';
   if(mobileSafeRender()){
-    const mem=Number(navigator.deviceMemory||0);
-    // Use lighter temporary frames on lower-memory phones, then upscale only at export.
-    if(mem>0&&mem<=4)return vertical?{w:540,h:960}:{w:960,h:540};
-    return vertical?{w:720,h:1280}:{w:1280,h:720};
+    // Always keep temporary phone frames light. The final FFmpeg export is still Full HD.
+    // This saves a large amount of RAM on Android while rendering long queues.
+    return vertical?{w:540,h:960}:{w:960,h:540};
   }
   return vertical?{w:1080,h:1920}:{w:1920,h:1080};
 }
@@ -310,7 +309,7 @@ function destroyTtsWorker(){
 function ensureTtsWorkerInstance(){
   if(state.ttsWorker)return state.ttsWorker;
   if(!window.Worker)throw new Error('This browser does not support the background voice worker.');
-  const workerUrl=new URL('./tts-worker.js?v=20260927d',import.meta.url);
+  const workerUrl=new URL('./tts-worker.js?v=20260927i',import.meta.url);
   const worker=new Worker(workerUrl,{type:'module'});
   state.ttsWorker=worker;
   worker.onmessage=(e)=>{
@@ -362,9 +361,10 @@ async function ensureTtsWorkerReady({silent=false}={}){
   return state.ttsWorkerReadyPromise;
 }
 function prewarmMobileVoice(){
-  if(!mobileSafeRender()||state.settings.geminiKey||!window.Worker||state.ttsWorkerReady||state.ttsWorkerReadyPromise)return;
-  const start=()=>ensureTtsWorkerReady({silent:true}).catch(err=>console.warn('Voice prewarm skipped',err));
-  if('requestIdleCallback' in window)requestIdleCallback(start,{timeout:1200});else setTimeout(start,120);
+  // v7: do not prewarm the large local model on phones.
+  // A dedicated single-use worker is created only when narration is actually needed.
+  // This prevents prewarm/generation races and Android worker resets.
+  return;
 }
 
 function marketContext(){
@@ -467,7 +467,9 @@ function cleanupBetweenBatchVideos(){
 function buildSeededShortPlan(seed,index=0){
   const profile=NICHES[seed.niche];
   const ctas=['Save this explanation for later.','Share this with someone learning the basics.','Follow for another plain-English breakdown.','Keep this as a quick reference.'];
-  const script=`${seed.hook} ${seed.explain} ${seed.example} ${seed.takeaway} ${ctas[index%ctas.length]} ${profile.disclaimer}`;
+  // Keep spoken Shorts concise to reduce phone TTS/render load.
+  // The full educational disclaimer remains in the YouTube description.
+  const script=`${seed.hook} ${seed.explain} ${seed.example} ${seed.takeaway} ${ctas[index%ctas.length]}`;
   const hashtags=['#Shorts',`#${profile.short.replace(/[^a-z0-9]/gi,'')}`,'#Explained','#Education'];
   const tags=[seed.keyword,...profile.keywords,seed.topic||seed.title.toLowerCase(),'high value explained','beginner guide','youtube shorts'];
   const title=clean(seed.title).slice(0,100);
@@ -703,24 +705,107 @@ function floatSamplesToWav(samples,sampleRate=24000){
   for(let i=0;i<samples.length;i++,o+=2){const s=Math.max(-1,Math.min(1,Number(samples[i])||0));v.setInt16(o,s<0?s*0x8000:s*0x7fff,true);}
   return new Blob([u],{type:'audio/wav'});
 }
+function dedicatedTtsWorkerRequest(worker,type,payload={},onMessage=()=>{},timeoutMs=720000){
+  const requestId=`dedicated_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  return new Promise((resolve,reject)=>{
+    let finished=false;
+    let idleTimer=null;
+    let maxTimer=null;
+    const cleanup=()=>{
+      clearTimeout(idleTimer);clearTimeout(maxTimer);
+      worker.removeEventListener('message',onWorkerMessage);
+      worker.removeEventListener('error',onWorkerError);
+    };
+    const resetIdle=()=>{
+      clearTimeout(idleTimer);
+      idleTimer=setTimeout(()=>{
+        if(finished)return;finished=true;cleanup();
+        reject(new Error('Local narration stopped making progress.'));
+      },300000);
+    };
+    const onWorkerMessage=e=>{
+      const msg=e.data||{};
+      if(msg.requestId!==requestId)return;
+      resetIdle();
+      try{onMessage(msg);}catch{}
+      if(msg.type==='ready'||msg.type==='done'){
+        if(finished)return;finished=true;cleanup();resolve(msg);
+      }else if(msg.type==='error'){
+        if(finished)return;finished=true;cleanup();reject(new Error(msg.message||'Local narration worker failed.'));
+      }
+    };
+    const onWorkerError=e=>{
+      if(finished)return;finished=true;cleanup();
+      reject(new Error(e?.message||'Android stopped the local narration worker.'));
+    };
+    worker.addEventListener('message',onWorkerMessage);
+    worker.addEventListener('error',onWorkerError);
+    resetIdle();
+    maxTimer=setTimeout(()=>{
+      if(finished)return;finished=true;cleanup();
+      reject(new Error('Local narration reached the safety time limit.'));
+    },timeoutMs);
+    worker.postMessage({type,requestId,...payload});
+  });
+}
+
 async function mobileWorkerTts(text){
   if(!window.Worker)throw new Error('This browser does not support the background voice worker.');
-  setStatus(state.ttsWorkerReady?'Generating free local narration…':'Finishing free local voice setup…');
-  await ensureTtsWorkerReady({silent:false});
-  try{
-    const maxChars=text.length>1800?280:360;
-    const m=await ttsWorkerRequest('generate',{text:clean(text),voice:localVoiceName(),maxChars,speed:1.04},msg=>{
-      if(msg.type==='chunk')setStatus(`Generating narration in background… ${msg.index}/${msg.total}`);
-      if(msg.type==='load')setStatus(`Loading free local AI voice… ${Math.max(0,Math.min(100,Math.round(Number(msg.progress)||0)))}%`);
-    });
-    const buf=m.buffer;
-    if(!(buf instanceof ArrayBuffer)||buf.byteLength<45)throw new Error('Background narration returned invalid audio.');
-    return new Blob([buf],{type:'audio/wav'});
-  } finally {
-    // Release the TTS model before FFmpeg starts so both large WASM workloads never share RAM.
-    destroyTtsWorker();
-    await sleep(80);
+
+  // Never share a narration worker with a prewarm or previous video on Android.
+  // A fresh worker is created for each attempt, then terminated before FFmpeg loads.
+  try{destroyTtsWorker();}catch{}
+  const cleaned=clean(text);
+  let lastError=null;
+
+  for(let attempt=1;attempt<=3;attempt++){
+    let worker=null;
+    try{
+      setStatus(attempt===1
+        ? 'Starting stable local narration…'
+        : `Narration worker restarted automatically · attempt ${attempt}/3…`,'subtle');
+
+      const workerUrl=new URL('./tts-worker.js?v=20260927i',import.meta.url);
+      worker=new Worker(workerUrl,{type:'module'});
+
+      await dedicatedTtsWorkerRequest(worker,'init',{preferWebGPU:false},msg=>{
+        if(msg.type==='load'){
+          const pct=Math.max(0,Math.min(100,Math.round(Number(msg.progress)||0)));
+          setStatus(`Loading free local AI voice… ${pct}%`);
+        }
+        if(msg.type==='heartbeat')setStatus('Loading free local AI voice… still working');
+      },720000);
+
+      // Smaller chunks use less peak memory on Android. Later retries go even smaller.
+      const maxChars=attempt===1?240:(attempt===2?190:150);
+      const generated=await dedicatedTtsWorkerRequest(
+        worker,
+        'generate',
+        {text:cleaned,voice:localVoiceName(),maxChars,speed:1.06,preferWebGPU:false},
+        msg=>{
+          if(msg.type==='chunk')setStatus(`Generating narration… ${msg.index}/${msg.total} · attempt ${attempt}/3`);
+          if(msg.type==='heartbeat'&&msg.total)setStatus(`Generating narration… ${msg.index||1}/${msg.total} · still working`);
+        },
+        900000
+      );
+
+      const buf=generated.buffer;
+      if(!(buf instanceof ArrayBuffer)||buf.byteLength<45)throw new Error('Local narration returned invalid audio.');
+      return new Blob([buf],{type:'audio/wav'});
+    }catch(err){
+      lastError=err;
+      console.warn(`Dedicated narration attempt ${attempt} failed`,err);
+      if(attempt<3){
+        setStatus(`Narration restarted automatically after a worker problem · ${attempt}/3…`,'subtle');
+        await sleep(1200);
+      }
+    }finally{
+      try{worker?.terminate?.();}catch{}
+      // Give Android a moment to reclaim the model memory before retry/FFmpeg.
+      await sleep(250);
+    }
   }
+  throw new Error(`Local narration failed after 3 automatic attempts: ${lastError?.message||lastError||'unknown voice error'}`);
 }
 
 async function localKokoroTts(text){
@@ -802,8 +887,31 @@ async function renderVideo(){
     catch(err){console.warn('Gemini narration failed; switching to free local voice.',err);setStatus('Gemini narration unavailable — switching to the free local AI voice…','subtle');}
   }
   if(!audio){
-    try{usedLocalVoice=true;audio=await localKokoroTts(plan.script);audioSeconds=await mediaDuration(audio,'audio');}
-    catch(err){console.error('Local narration failed',err);setAgent('production','Voice failed','warn');throw new Error(`I stopped instead of making another silent video. Free local narration could not finish on this device: ${err.message||err}`);}
+    try{
+      usedLocalVoice=true;
+      audio=await localKokoroTts(plan.script);
+      audioSeconds=await mediaDuration(audio,'audio');
+    }catch(firstErr){
+      console.warn('First local narration cycle failed',firstErr);
+      if(mobile){
+        // One full clean retry after Android has reclaimed the previous worker.
+        try{destroyTtsWorker();}catch{}
+        await sleep(1500);
+        try{
+          setStatus('Doing one clean narration recovery cycle…','subtle');
+          audio=await localKokoroTts(plan.script);
+          audioSeconds=await mediaDuration(audio,'audio');
+        }catch(secondErr){
+          console.error('Local narration recovery failed',secondErr);
+          setAgent('production','Voice failed','warn');
+          throw new Error(`I stopped instead of making a silent video. Narration recovery could not finish: ${secondErr.message||secondErr}`);
+        }
+      }else{
+        console.error('Local narration failed',firstErr);
+        setAgent('production','Voice failed','warn');
+        throw new Error(`I stopped instead of making a silent video. Free local narration could not finish: ${firstErr.message||firstErr}`);
+      }
+    }
   }
   if(!(audioSeconds>1))throw new Error('Narration was generated but its duration could not be verified, so the silent export was blocked.');
 
@@ -934,6 +1042,8 @@ async function runThirtyShorts(){
       setAgent('seo','Keyword aligned','good');
       setAgent('thumbnail','Ready','good');
 
+      els.batch30Status.textContent=`${i+1}/30 · Preparing phone memory for narration: ${seed.title}`;
+      if(mobileSafeRender())await waitMs(1000);
       els.batch30Status.textContent=`${i+1}/30 · Rendering 1080×1920: ${seed.title}`;
       await renderVideo();
 
@@ -951,7 +1061,7 @@ async function runThirtyShorts(){
       els.batch30Status.className='notice good';
       els.batch30Status.textContent=`${i+1}/30 uploaded successfully · ${seed.title}`;
       cleanupBetweenBatchVideos();
-      await waitMs(1200);
+      await waitMs(mobileSafeRender()?2500:1200);
     }
 
     const final=batch30State();
