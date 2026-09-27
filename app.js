@@ -310,7 +310,7 @@ function destroyTtsWorker(){
 function ensureTtsWorkerInstance(){
   if(state.ttsWorker)return state.ttsWorker;
   if(!window.Worker)throw new Error('This browser does not support the background voice worker.');
-  const workerUrl=new URL('./tts-worker.js?v=20260927m',import.meta.url);
+  const workerUrl=new URL('./tts-worker.js?v=20260927p',import.meta.url);
   const worker=new Worker(workerUrl,{type:'module'});
   state.ttsWorker=worker;
   worker.onmessage=(e)=>{
@@ -776,7 +776,7 @@ async function mobileWorkerTts(text){
         ? 'Starting stable local narration…'
         : `Narration worker restarted automatically · attempt ${attempt}/3…`,'subtle');
 
-      const workerUrl=new URL('./tts-worker.js?v=20260927m',import.meta.url);
+      const workerUrl=new URL('./tts-worker.js?v=20260927p',import.meta.url);
       worker=new Worker(workerUrl,{type:'module'});
 
       await dedicatedTtsWorkerRequest(worker,'init',{preferWebGPU:false},msg=>{
@@ -879,8 +879,250 @@ async function ensureFfmpeg(){
 }
 function srtTime(seconds){const ms=Math.max(0,Math.round(seconds*1000)),h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000),x=ms%1000;return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(x).padStart(3,'0')}`;}
 function makeSrt(lines,totalSeconds){const chunk=totalSeconds/Math.max(1,lines.length);return lines.map((t,i)=>`${i+1}\n${srtTime(i*chunk)} --> ${srtTime(Math.min(totalSeconds,(i+1)*chunk))}\n${clean(t)}\n`).join('\n');}
+function roundRectPath(ctx,x,y,w,h,r){
+  const rr=Math.max(0,Math.min(r,Math.min(w,h)/2));
+  ctx.beginPath();
+  ctx.moveTo(x+rr,y);
+  ctx.arcTo(x+w,y,x+w,y+h,rr);
+  ctx.arcTo(x+w,y+h,x,y+h,rr);
+  ctx.arcTo(x,y+h,x,y,rr);
+  ctx.arcTo(x,y,x+w,y,rr);
+  ctx.closePath();
+}
+function fillRoundRect(ctx,x,y,w,h,r,fill,stroke){
+  roundRectPath(ctx,x,y,w,h,r);
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.strokeStyle=stroke;ctx.stroke();}
+}
+function thumbnailPalette(niche){
+  return ({
+    finance:{bg1:'#133d1c',bg2:'#04130d',accent:'#ffd133',accent2:'#73ff6b',chip:'#ffe24d'},
+    insurance:{bg1:'#12314d',bg2:'#061320',accent:'#50b8ff',accent2:'#a8e3ff',chip:'#78d5ff'},
+    law:{bg1:'#382012',bg2:'#120904',accent:'#ffca62',accent2:'#ffe9bf',chip:'#f8d98b'},
+    realestate:{bg1:'#15352c',bg2:'#081712',accent:'#42d18b',accent2:'#c8ffe2',chip:'#7cf2b5'},
+    ai:{bg1:'#28154a',bg2:'#0a0715',accent:'#ad7cff',accent2:'#dfc9ff',chip:'#c69cff'},
+    business:{bg1:'#23311a',bg2:'#0b1307',accent:'#ffd34d',accent2:'#fff0b1',chip:'#ffe073'}
+  })[niche]||{bg1:'#172337',bg2:'#091018',accent:'#ffd133',accent2:'#ffffff',chip:'#ffe24d'};
+}
+function supportHeadline(plan){
+  const title=clean(plan.chosenTitle||'').toUpperCase();
+  const fromTitle=(title.includes(':')?title.split(':').slice(1).join(':'):title).trim();
+  const fb=clean(plan.thumbnailTexts?.[1]||plan.keyword||plan.nicheLabel||'').toUpperCase();
+  const text=(fromTitle||fb).replace(/^HOW TO\s+/,'').replace(/^WHAT IS\s+/,'').trim();
+  return text||fb||'CLEAR EXPLAINER';
+}
+function drawNicheBadge(ctx,plan,pal){
+  const x=980,y=74,w=220,h=220;
+  ctx.save();
+  ctx.shadowColor='rgba(0,0,0,.38)';ctx.shadowBlur=36;ctx.shadowOffsetY=18;
+  const rg=ctx.createRadialGradient(x+w/2,y+h/2,10,x+w/2,y+h/2,w/2);
+  rg.addColorStop(0,'rgba(255,255,255,.12)');
+  rg.addColorStop(.65,pal.bg1);
+  rg.addColorStop(1,'rgba(0,0,0,.78)');
+  fillRoundRect(ctx,x,y,w,h,34,rg,'rgba(255,255,255,.18)');
+  ctx.restore();
+  ctx.save();
+  ctx.translate(x+w/2,y+h/2);
+  ctx.strokeStyle=pal.accent;ctx.lineWidth=14;ctx.lineCap='round';
+  if(plan.niche==='finance' || plan.niche==='business'){
+    ctx.beginPath();ctx.moveTo(-62,62);ctx.lineTo(-18,20);ctx.lineTo(14,34);ctx.lineTo(74,-40);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(58,-40);ctx.lineTo(74,-40);ctx.lineTo(74,-24);ctx.stroke();
+    [[-70,46,24],[-28,10,40],[14,22,28],[56,-20,70]].forEach(([bx,by,bh])=>{ctx.fillStyle=pal.accent;ctx.globalAlpha=.92;ctx.fillRect(bx,by,18,bh);ctx.globalAlpha=1;});
+  }else if(plan.niche==='insurance'){
+    ctx.beginPath();ctx.moveTo(0,-74);ctx.lineTo(68,-44);ctx.lineTo(56,26);ctx.quadraticCurveTo(0,88,-56,26);ctx.lineTo(-68,-44);ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-24,-2);ctx.lineTo(-2,24);ctx.lineTo(34,-26);ctx.stroke();
+  }else if(plan.niche==='law'){
+    ctx.beginPath();ctx.moveTo(0,-62);ctx.lineTo(0,52);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-54,-26);ctx.lineTo(54,-26);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-36,-26);ctx.lineTo(-64,10);ctx.lineTo(-8,10);ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(36,-26);ctx.lineTo(8,10);ctx.lineTo(64,10);ctx.closePath();ctx.stroke();
+    ctx.beginPath();ctx.moveTo(-18,52);ctx.lineTo(18,52);ctx.stroke();
+  }else if(plan.niche==='realestate'){
+    ctx.beginPath();ctx.moveTo(-60,6);ctx.lineTo(0,-54);ctx.lineTo(60,6);ctx.stroke();
+    ctx.strokeRect(-40,6,80,56);
+    ctx.strokeRect(-10,30,20,32);
+  }else if(plan.niche==='ai'){
+    fillRoundRect(ctx,-44,-44,88,88,18,'transparent',pal.accent);
+    [[0,-64],[0,64],[-64,0],[64,0],[-48,-48],[48,-48],[-48,48],[48,48]].forEach(([px,py])=>{ctx.beginPath();ctx.moveTo(Math.sign(px)*36||0,Math.sign(py)*36||0);ctx.lineTo(px,py);ctx.stroke();ctx.beginPath();ctx.fillStyle=pal.accent;ctx.arc(px,py,8,0,Math.PI*2);ctx.fill();});
+    ctx.beginPath();ctx.arc(0,0,16,0,Math.PI*2);ctx.fillStyle=pal.accent;ctx.fill();
+  }
+  ctx.restore();
+}
+async function makeLandscapeThumbnail(plan,sceneBlob){
+  const bitmap=await createImageBitmap(sceneBlob);
+  const c=document.createElement('canvas');c.width=1280;c.height=720;const ctx=c.getContext('2d');
+  const W=c.width,H=c.height,pal=thumbnailPalette(plan.niche);
+  const sr=bitmap.width/bitmap.height,tr=W/H;let sx=0,sy=0,sw=bitmap.width,sh=bitmap.height;if(sr>tr){sw=bitmap.height*tr;sx=(bitmap.width-sw)/2;}else{sh=bitmap.width/tr;sy=(bitmap.height-sh)/2;}
+
+  ctx.fillStyle=pal.bg2;ctx.fillRect(0,0,W,H);
+  ctx.save();
+  ctx.filter='blur(2px) brightness(.72) contrast(1.18) saturate(1.16)';
+  ctx.drawImage(bitmap,sx,sy,sw,sh,0,0,W,H);
+  ctx.restore();
+
+  const bg=ctx.createLinearGradient(0,0,W,H);bg.addColorStop(0,pal.bg1+'DD');bg.addColorStop(.55,'rgba(0,0,0,.55)');bg.addColorStop(1,pal.bg2+'F0');ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+  const glow=ctx.createRadialGradient(160,160,30,160,160,380);glow.addColorStop(0,pal.accent+'55');glow.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=glow;ctx.fillRect(0,0,560,560);
+  const glow2=ctx.createRadialGradient(1080,580,20,1080,580,300);glow2.addColorStop(0,pal.accent2+'33');glow2.addColorStop(1,'rgba(0,0,0,0)');ctx.fillStyle=glow2;ctx.fillRect(780,320,500,360);
+  ctx.globalAlpha=.18;for(let i=0;i<7;i++){ctx.beginPath();ctx.arc(160+i*168,90+((i%3)*74),52+(i*11),0,Math.PI*2);ctx.fillStyle=i%2?pal.accent2:pal.accent;ctx.fill();}ctx.globalAlpha=1;
+  const vign=ctx.createLinearGradient(0,0,0,H);vign.addColorStop(0,'rgba(0,0,0,.12)');vign.addColorStop(.6,'rgba(0,0,0,.06)');vign.addColorStop(1,'rgba(0,0,0,.58)');ctx.fillStyle=vign;ctx.fillRect(0,0,W,H);
+
+  fillRoundRect(ctx,52,44,386,52,26,'rgba(255,255,255,.11)','rgba(255,255,255,.12)');
+  ctx.font='800 28px Arial';ctx.fillStyle='rgba(255,255,255,.95)';ctx.fillText(`${plan.nicheLabel.toUpperCase()} • HIGH VALUE EXPLAINED`,78,78);
+
+  drawNicheBadge(ctx,plan,pal);
+
+  const hero=clean(plan.thumbnailTexts?.[0]||plan.chosenTitle).split(/\s+/).slice(0,5).join(' ').toUpperCase();
+  const heroLines=hero.split(/\s+/).length<=2?[hero]:wrapCanvasText(ctx,hero,700,2);
+  ctx.textBaseline='alphabetic';
+  ctx.font='900 132px Arial';ctx.lineJoin='round';ctx.strokeStyle='rgba(0,0,0,.55)';ctx.lineWidth=20;ctx.shadowColor='rgba(0,0,0,.38)';ctx.shadowBlur=24;ctx.shadowOffsetY=12;
+  const textX=70;let y=250;
+  heroLines.forEach((line,idx)=>{
+    const fill = idx===0 ? '#FFFFFF' : pal.accent;
+    ctx.fillStyle=fill;ctx.strokeText(line,textX,y,740);ctx.fillText(line,textX,y,740);y+=118;
+  });
+  ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+
+  const support=supportHeadline(plan);
+  const bannerX=58,bannerY=Math.min(H-218,y-24),bannerW=760,bannerH=150;
+  fillRoundRect(ctx,bannerX,bannerY,bannerW,bannerH,30,pal.chip,'rgba(255,255,255,.22)');
+  ctx.fillStyle='rgba(0,0,0,.18)';ctx.fillRect(bannerX+20,bannerY+bannerH-18,bannerW-40,6);
+  ctx.font='900 82px Arial';ctx.fillStyle='#0e1822';
+  const supportLines=wrapCanvasText(ctx,support,bannerW-58,2);let syText=bannerY+78;
+  supportLines.forEach(line=>{ctx.fillText(line,bannerX+30,syText,bannerW-58);syText+=72;});
+
+  fillRoundRect(ctx,62,H-74,330,36,18,'rgba(255,255,255,.11)','rgba(255,255,255,.14)');
+  ctx.font='700 20px Arial';ctx.fillStyle='rgba(255,255,255,.92)';
+  const chip=(clean(plan.keyword||plan.topic||'').toUpperCase()||'EXPLAINED').slice(0,38);
+  ctx.fillText(chip,86,H-48);
+  ctx.font='700 18px Arial';ctx.fillStyle='rgba(255,255,255,.76)';ctx.fillText('SHORTS THUMBNAIL • SEO READY',972,H-46);
+
+  bitmap.close?.();
+  return await new Promise(r=>c.toBlob(r,'image/jpeg',.95));
+}
+
+async function makeShortThumbnail(plan,sceneBlob){
+  const bitmap=await createImageBitmap(sceneBlob);
+  const c=document.createElement('canvas');
+  // 1080x1920 is true 9:16 and keeps mobile memory/file size sensible.
+  c.width=1080;c.height=1920;
+  const ctx=c.getContext('2d');
+  const W=c.width,H=c.height,pal=thumbnailPalette(plan.niche);
+
+  const sr=bitmap.width/bitmap.height,tr=W/H;
+  let sx=0,sy=0,sw=bitmap.width,sh=bitmap.height;
+  if(sr>tr){sw=bitmap.height*tr;sx=(bitmap.width-sw)/2;}
+  else{sh=bitmap.width/tr;sy=(bitmap.height-sh)/2;}
+
+  ctx.fillStyle=pal.bg2;ctx.fillRect(0,0,W,H);
+
+  // Use the first scene as a subtle full-height textured background.
+  ctx.save();
+  ctx.filter='blur(3px) brightness(.58) contrast(1.24) saturate(1.24)';
+  ctx.drawImage(bitmap,sx,sy,sw,sh,0,0,W,H);
+  ctx.restore();
+
+  // Premium layered background.
+  const topGlow=ctx.createRadialGradient(190,180,30,190,180,620);
+  topGlow.addColorStop(0,pal.accent+'62');
+  topGlow.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=topGlow;ctx.fillRect(0,0,W,820);
+
+  const bottomGlow=ctx.createRadialGradient(860,1600,30,860,1600,620);
+  bottomGlow.addColorStop(0,pal.accent2+'38');
+  bottomGlow.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=bottomGlow;ctx.fillRect(350,980,730,940);
+
+  const overlay=ctx.createLinearGradient(0,0,0,H);
+  overlay.addColorStop(0,'rgba(0,0,0,.28)');
+  overlay.addColorStop(.34,'rgba(0,0,0,.40)');
+  overlay.addColorStop(.70,'rgba(0,0,0,.56)');
+  overlay.addColorStop(1,'rgba(0,0,0,.82)');
+  ctx.fillStyle=overlay;ctx.fillRect(0,0,W,H);
+
+  // Decorative circles/shapes for a more polished Shorts look.
+  ctx.globalAlpha=.12;
+  for(let i=0;i<8;i++){
+    ctx.beginPath();
+    ctx.arc(100+(i%4)*290,120+Math.floor(i/4)*360,90+i*16,0,Math.PI*2);
+    ctx.fillStyle=i%2?pal.accent:pal.accent2;
+    ctx.fill();
+  }
+  ctx.globalAlpha=1;
+
+  // Brand pill.
+  fillRoundRect(ctx,54,54,690,76,38,'rgba(255,255,255,.11)','rgba(255,255,255,.16)');
+  ctx.font='800 34px Arial';
+  ctx.fillStyle='#FFFFFF';
+  ctx.fillText(`${plan.nicheLabel.toUpperCase()} • HIGH VALUE EXPLAINED`,84,104);
+
+  // Large niche badge.
+  ctx.save();
+  ctx.translate(-80,95);
+  ctx.scale(1.08,1.08);
+  drawNicheBadge(ctx,plan,pal);
+  ctx.restore();
+
+  // Strong headline.
+  const hero=clean(plan.thumbnailTexts?.[0]||plan.chosenTitle)
+    .split(/\s+/).slice(0,5).join(' ').toUpperCase();
+  ctx.font='900 146px Arial';
+  ctx.lineJoin='round';
+  ctx.lineWidth=22;
+  ctx.strokeStyle='rgba(0,0,0,.62)';
+  ctx.shadowColor='rgba(0,0,0,.42)';
+  ctx.shadowBlur=30;
+  ctx.shadowOffsetY=14;
+
+  const heroLines=wrapCanvasText(ctx,hero,930,3);
+  let y=610;
+  heroLines.forEach((line,i)=>{
+    ctx.fillStyle=i===0?'#FFFFFF':pal.accent;
+    ctx.strokeText(line,64,y,930);
+    ctx.fillText(line,64,y,930);
+    y+=150;
+  });
+  ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetY=0;
+
+  // Supporting statement panel.
+  const support=supportHeadline(plan);
+  const panelY=Math.min(1390,Math.max(1030,y+10));
+  fillRoundRect(ctx,54,panelY,972,300,42,pal.chip,'rgba(255,255,255,.22)');
+  ctx.fillStyle='rgba(0,0,0,.12)';
+  fillRoundRect(ctx,76,panelY+24,928,252,30,'rgba(255,255,255,.08)',null);
+
+  ctx.font='900 92px Arial';
+  ctx.fillStyle='#0e1822';
+  const supportLines=wrapCanvasText(ctx,support,880,3);
+  let syText=panelY+116;
+  supportLines.forEach(line=>{
+    ctx.fillText(line,100,syText,880);
+    syText+=92;
+  });
+
+  // Bottom SEO/Shorts chips.
+  fillRoundRect(ctx,54,H-176,340,62,31,'rgba(255,255,255,.12)','rgba(255,255,255,.14)');
+  ctx.font='800 28px Arial';ctx.fillStyle='#FFFFFF';
+  ctx.fillText('YOUTUBE SHORTS • 9:16',82,H-135);
+
+  const topic=clean(plan.keyword||plan.topic||'EXPLAINED').toUpperCase().slice(0,32);
+  fillRoundRect(ctx,414,H-176,612,62,31,pal.accent+'E6','rgba(255,255,255,.18)');
+  ctx.fillStyle='#101820';ctx.font='900 28px Arial';
+  ctx.fillText(topic,444,H-135,552);
+
+  // Safe-area framing guide baked into design, not a visible border.
+  ctx.fillStyle='rgba(255,255,255,.05)';
+  ctx.fillRect(54,158,972,4);
+  ctx.fillRect(54,H-224,972,4);
+
+  bitmap.close?.();
+  // High quality but usually comfortably below thumbnail API limits.
+  return await new Promise(r=>c.toBlob(r,'image/jpeg',.93));
+}
+
 async function makeThumbnail(plan,sceneBlob){
-  const bitmap=await createImageBitmap(sceneBlob);const c=document.createElement('canvas');c.width=1280;c.height=720;const ctx=c.getContext('2d');const sr=bitmap.width/bitmap.height,tr=1280/720;let sx=0,sy=0,sw=bitmap.width,sh=bitmap.height;if(sr>tr){sw=bitmap.height*tr;sx=(bitmap.width-sw)/2;}else{sh=bitmap.width/tr;sy=(bitmap.height-sh)/2;}ctx.filter='brightness(1.14) contrast(1.18) saturate(1.16)';ctx.drawImage(bitmap,sx,sy,sw,sh,0,0,1280,720);ctx.filter='none';const g=ctx.createLinearGradient(0,280,0,720);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,.9)');ctx.fillStyle=g;ctx.fillRect(0,250,1280,470);ctx.font='800 28px Arial';ctx.fillStyle='#fff';ctx.fillText(plan.nicheLabel.toUpperCase(),76,430);ctx.font='900 92px Arial';ctx.strokeStyle='rgba(0,0,0,.96)';ctx.lineWidth=14;ctx.lineJoin='round';ctx.fillStyle='#fff';const headline=clean(plan.thumbnailTexts[0]||plan.chosenTitle).split(/\s+/).slice(0,4).join(' ').toUpperCase();const lines=wrapCanvasText(ctx,headline,1120,2);let y=565;for(const line of lines){ctx.strokeText(line,76,y,1120);ctx.fillText(line,76,y,1120);y+=105;}ctx.fillStyle='#ffd45b';ctx.fillRect(78,686,280,9);bitmap.close?.();return await new Promise(r=>c.toBlob(r,'image/jpeg',.94));
+  return plan?.format==='long'
+    ? makeLandscapeThumbnail(plan,sceneBlob)
+    : makeShortThumbnail(plan,sceneBlob);
 }
 
 async function renderVideo(){
@@ -980,7 +1222,7 @@ async function renderVideo(){
     state.srt=makeSrt(scenes,total);
     setProgress(100);
     setAgent('production',`1080p narrated MP4 ready · ${mb(state.videoBlob.size)} MB`,'good');
-    setAgent('publishing','Ready to preview','good');
+    setAgent('publishing',plan.format==='long'?'Ready to preview':'9:16 thumbnail ready · auto-upload enabled','good');
     showPreview();
     setStatus(`Video ready — Full HD 1080p · ${mb(state.videoBlob.size)} MB${mobile?' · MOBILE-SAFE':''}${turboEnabled()?' · TURBO UPLOAD':''}.`,'good');
     updatePublishGuard();
@@ -1339,7 +1581,21 @@ async function uploadVideoResumable(metadata,videoBlob,onProgress){
   if(!completed?.id)throw new Error('YouTube finished receiving the video but returned no video ID.');
   return completed;
 }
-async function uploadThumbnail(videoId){if(!state.thumbnailBlob)return;const u=new URL('https://www.googleapis.com/upload/youtube/v3/thumbnails/set');u.searchParams.set('videoId',videoId);const r=await fetchWithTimeout(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':'image/jpeg'},body:state.thumbnailBlob},90000);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Thumbnail upload failed.');}
+async function uploadThumbnail(videoId){
+  if(!state.thumbnailBlob)return;
+  // Give YouTube a moment to register a freshly uploaded Short before setting its thumbnail.
+  await waitMs(state.batch30Running?1800:900);
+  const u=new URL('https://www.googleapis.com/upload/youtube/v3/thumbnails/set');
+  u.searchParams.set('videoId',videoId);
+  const r=await fetchWithTimeout(u,{
+    method:'POST',
+    headers:{Authorization:`Bearer ${await ensurePublishToken()}`,'Content-Type':'image/jpeg'},
+    body:state.thumbnailBlob
+  },90000);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d?.error?.message||'Automatic Shorts thumbnail upload failed.');
+  return d;
+}
 async function uploadCaption(videoId){if(!state.srt)return;const meta={snippet:{videoId,language:'en',name:'ClipFree AI captions',isDraft:false}};const b=`cap_${Date.now()}`;const body=multipart(meta,new Blob([state.srt],{type:'application/x-subrip'}),'application/x-subrip',b);const u=new URL('https://www.googleapis.com/upload/youtube/v3/captions');u.searchParams.set('uploadType','multipart');u.searchParams.set('part','snippet');const r=await fetchWithTimeout(u,{method:'POST',headers:{Authorization:`Bearer ${await token()}`,'Content-Type':body.type},body},90000);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d?.error?.message||'Caption upload failed.');}
 async function loadPlaylistCache(){
   if(state.playlistCacheLoaded)return;
@@ -1417,7 +1673,7 @@ async function uploadYoutube(){
     if(result.id){
       // Run thumbnail, captions and playlist work together instead of waiting for each one in sequence.
       const jobs=[];
-      if(els.uploadThumbnail.checked)jobs.push(retryAsync(()=>uploadThumbnail(result.id),'Thumbnail upload',3));
+      if(els.uploadThumbnail.checked)jobs.push(retryAsync(()=>uploadThumbnail(result.id),'9:16 thumbnail upload',5));
       if(els.uploadCaptions.checked&&state.srt&&!state.batch30Running)jobs.push(retryAsync(()=>uploadCaption(result.id),'Caption upload',3));
       const playlistSpecs=els.autoPlaylist?.checked?autoPlaylistSpecs(state.plan):[];const manual=clean(els.playlistName?.value||'');if(manual)playlistSpecs.push({title:manual,description:'High Value Explained videos.'});const seen=new Set();
       for(const spec of playlistSpecs){if(!spec?.title||seen.has(spec.title.toLowerCase()))continue;seen.add(spec.title.toLowerCase());jobs.push(retryAsync(async()=>{const pid=await ensurePlaylist(spec.title,spec.description);if(pid)await addPlaylist(result.id,pid);},`Playlist: ${spec.title}`,3));}

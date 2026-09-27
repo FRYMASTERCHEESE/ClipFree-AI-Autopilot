@@ -162,6 +162,7 @@
             <button id="stopThirtyShorts" class="secondary full hidden" type="button">Stop after current Short</button>
             <button id="resetThirtyShorts" class="secondary full" type="button">Reset 20-Short progress</button>
             <div id="batch30Status" class="notice subtle">Ready. The queue uses finance, insurance, mortgages, AI/SaaS, business and legal education topics with U.S.-leaning commercial search intent.</div>
+            <div class="notice good"><strong>9:16 Thumbnail Autopilot:</strong> every Short gets its own vertical 1080×1920 thumbnail, matched to the topic and niche. ClipFree uploads the Short first, then automatically applies the matching custom thumbnail through YouTube.</div>
             <div class="notice good"><strong>SEO Growth Mode:</strong> primary keyword in the title, first description line, spoken hook and tag cluster; concise mobile title; branded CTA; channel link; topic-specific hashtags; and consistent niche playlists. These improve discoverability, but no code can guarantee a #1 ranking, views or subscribers.</div>
             <div class="progress"><div id="batch30Progress"></div></div>
           </div>
@@ -178,7 +179,7 @@
             <div class="agent-row" data-agent="research"><div><strong>🔎 Topic Research</strong><small>evergreen intent, duplication checks, risk notes</small></div><span data-state>Ready</span></div>
             <div class="agent-row" data-agent="script"><div><strong>✍️ Script Writer</strong><small>hook, retention beats, CTA</small></div><span data-state>Ready</span></div>
             <div class="agent-row" data-agent="seo"><div><strong>🔍 SEO Optimizer</strong><small>title, description, tags, hashtags, filename</small></div><span data-state>Ready</span></div>
-            <div class="agent-row" data-agent="thumbnail"><div><strong>🖼️ Thumbnail Designer</strong><small>mobile-safe text + variants</small></div><span data-state>Ready</span></div>
+            <div class="agent-row" data-agent="thumbnail"><div><strong>🖼️ Thumbnail Designer</strong><small>stunning 9:16 Shorts thumbnail · auto-upload</small></div><span data-state>Ready</span></div>
             <div class="agent-row" data-agent="production"><div><strong>🎬 Production</strong><small>graphics, captions, narration, render</small></div><span data-state>Ready</span></div>
             <div class="agent-row" data-agent="publishing"><div><strong>📤 Publishing</strong><small>metadata, thumbnail, playlist, schedule</small></div><span data-state>Ready</span></div>
             <div class="agent-row" data-agent="analytics"><div><strong>📊 Analytics</strong><small>real channel feedback loop</small></div><span data-state>Ready</span></div>
@@ -221,7 +222,7 @@
       </div>
 
       <section class="card video-preview-card">
-        <div class="panel-head"><div><h3>Generated video preview</h3><p>Original graphics are created locally in your browser. Gemini narration is added only when configured and available.</p></div><div class="mini-actions"><a id="downloadVideo" class="secondary hidden" download>Download video</a><a id="downloadThumbnail" class="secondary hidden" download>Download thumbnail</a></div></div>
+        <div class="panel-head"><div><h3>Generated video + thumbnail preview</h3><p>Original graphics and stunning 9:16 Shorts thumbnails are created automatically in your browser. After the Short uploads, ClipFree automatically sends its matching thumbnail to YouTube.</p></div><div class="mini-actions"><a id="downloadVideo" class="secondary hidden" download>Download video</a><a id="downloadThumbnail" class="secondary hidden" download>Download thumbnail</a></div></div>
         <div class="preview-wrap">
           <video id="videoPreview" class="hidden" controls playsinline></video>
           <div id="previewEmpty" class="empty-preview"><div class="play-icon">▶</div><h3>No video generated yet</h3><p>Your finished Short or long-form explainer will appear here.</p></div>
@@ -254,7 +255,7 @@
           <label><span>Audience</span><select id="madeForKids"><option value="false" selected>Not made for kids</option><option value="true">Made for kids</option></select></label>
           <label class="toggle-line"><input id="fastUpload" type="checkbox" checked /><span><strong>⚡ FASTEST 1080p UPLOAD MODE</strong><small>Keeps Full HD 1080p while using a smaller H.264 file tuned for simple graphics/Shorts, reducing upload time on mobile without changing the 1080×1920 dimensions.</small></span></label>
           <label class="toggle-line"><input id="uploadCaptions" type="checkbox" checked /><span><strong>Upload captions</strong><small>Generated SRT when available.</small></span></label>
-          <label class="toggle-line"><input id="uploadThumbnail" type="checkbox" checked /><span><strong>Upload thumbnail</strong><small>Generated locally from your content package.</small></span></label>
+          <label class="toggle-line"><input id="uploadThumbnail" type="checkbox" checked /><span><strong>Upload thumbnail</strong><small>Generated automatically as a stunning 9:16 Shorts thumbnail and attached to the Short after upload.</small></span></label>
           <button id="uploadYoutube" class="primary" type="button" disabled>Upload current video to YouTube</button>
           <div class="progress"><div id="uploadProgress"></div></div>
           <div id="uploadResult" class="notice subtle">Generate a video and connect YouTube first.</div>
@@ -351,6 +352,6 @@
     <a href="privacy.html">Privacy Policy</a> • <a href="terms.html">Terms</a> • <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener">YouTube Terms</a> • <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy Policy</a>
   </footer>
 
-  <script type="module" src="app.js?v=20260927m"></script>
+  <script type="module" src="app.js?v=20260927p"></script>
 </body>
 </html>
